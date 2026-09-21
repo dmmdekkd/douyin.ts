@@ -1,0 +1,41 @@
+{
+  "name": "douyin.ts",
+  "version": "0.1.0",
+  "description": "抖音 Node SDK",
+  "type": "module",
+  "main": "dist/index.mjs",
+  "types": "dist/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "files": [
+    "dist",
+    "assets"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "check": "tsc --noEmit",
+    "demo": "tsx demo/main.ts",
+    "docs": "vitepress dev docs",
+    "docs:build": "vitepress build docs"
+  },
+  "dependencies": {
+    "protobufjs": "^8.8.0",
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^3.0.3",
+    "@types/node": "^24.0.0",
+    "@types/ws": "^8.18.1",
+    "tsdown": "^0.22.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitepress": "^1.6.4"
+  }
+}
