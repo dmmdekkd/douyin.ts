@@ -1,10 +1,10 @@
 import { defineConfig } from 'vitepress'
 
 export default defineConfig({
+  base: '/douyin.ts/',
   lang: 'zh-CN',
   title: 'douyin.ts',
   description: '抖音 IM 开发 SDK · TypeScript 7 · 纯 ESM',
-  head: [['link', { rel: 'icon', type: 'image/svg+xml', href: '/logo.svg' }]],
   themeConfig: {
     nav: [
       { text: '指南', link: '/guide/', activeMatch: '/guide/' },
