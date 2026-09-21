@@ -1,0 +1,278 @@
+# 统一 CI/CD：PR 校验 + 预览包（PR 评论）+ Release PR（release-please）+ 多渠道正式发布
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+env:
+  APP_NAME: douyin.ts
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  id-token: write
+  packages: write
+  pull-requests: write
+
+jobs:
+  # 版本管理：Conventional Commits（feat:/fix:）→ 自动开/更新 Release PR，合并后打 tag + GitHub Release
+  release-please:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      releases_created: ${{ steps.release.outputs.releases_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: release
+        uses: googleapis/release-please-action@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: .release-please-config.json
+          manifest-file: .release-please-manifest.json
+      - name: summary
+        env:
+          RELEASED: ${{ steps.release.outputs.releases_created }}
+          TAG: ${{ steps.release.outputs.tag_name }}
+        run: |
+          {
+            echo '## 版本状态'
+            echo ''
+            if [ "$RELEASED" = 'true' ]; then
+              echo "已发布 $TAG：GitHub Release 已创建，后续任务自动发 npm / GitHub Packages / 镜像同步 / build 分支。"
+            else
+              echo '有新提交，已创建/更新 Release PR（合并后自动打 tag 并发布）。'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # 统一构建：类型检查 + 构建 + 文档构建，产物供后续 job 复用
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - id: check
+        run: pnpm check
+      - id: build
+        run: pnpm build
+      - id: docsbuild
+        run: pnpm docs:build
+      - name: summary
+        if: always()
+        run: |
+          fmt() { case "$1" in success) echo 通过 ;; failure) echo 失败 ;; skipped) echo 跳过 ;; *) echo "$1" ;; esac; }
+          {
+            echo '## 构建结果'
+            echo ''
+            echo '| 步骤 | 结果 |'
+            echo '| ---- | ---- |'
+            echo "| 类型检查 | $(fmt '${{ steps.check.outcome }}') |"
+            echo "| 构建 | $(fmt '${{ steps.build.outcome }}') |"
+            echo "| 文档构建 | $(fmt '${{ steps.docsbuild.outcome }}') |"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: 上传发布产物
+        uses: actions/upload-artifact@v7
+        with:
+          name: package-build
+          path: |
+            dist
+            assets
+            package.json
+            README.md
+          retention-days: 3
+
+  # 预览包：PR → alpha 版本，main → beta 版本，pkg.pr.new 即时可装
+  preview:
+    needs: [build]
+    if: always() && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v8
+        with:
+          name: package-build
+          path: .
+      - name: 生成预发布版本号
+        id: version-gen
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          COMMIT_COUNT=$(git rev-list --count HEAD)
+          if [ "${{ github.event_name }}" = 'pull_request' ]; then
+            PR_COUNT=$(git rev-list --count HEAD ^origin/main)
+            NEW_VERSION="${PKG_VERSION}-alpha.${{ github.event.number }}.${PR_COUNT}"
+          else
+            TIME_SUFFIX=$(date +%s | tail -c 5)
+            NEW_VERSION="${PKG_VERSION}-beta.${COMMIT_COUNT}.${TIME_SUFFIX}"
+          fi
+          npm version "$NEW_VERSION" --no-git-tag-version
+          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+      - name: 发布预览包
+        id: publish-pkg
+        run: |
+          npx --yes pkg-pr-new publish --json output.json --comment=off --compact --packageManager=pnpm 2>&1 | tee pkg-output.txt
+          URL=$(grep -oE 'https://pkg\.pr\.new/[^[:space:]`]+' pkg-output.txt | head -n 1 || echo "")
+          if [[ "$URL" =~ https://pkg\.pr\.new/[^/]+/[^/]+/([^/]+@.+) ]]; then
+            URL="https://pkg.pr.new/${BASH_REMATCH[1]}"
+          fi
+          if [ -z "$URL" ]; then URL='未获取到安装地址'; fi
+          echo "install_cmd=pnpm add $URL" >> "$GITHUB_OUTPUT"
+      - name: PR 评论预览包
+        if: github.event_name == 'pull_request'
+        uses: thollander/actions-comment-pull-request@v3
+        with:
+          message: |
+            ## 预览包发布成功
+
+            - **版本：** `${{ steps.version-gen.outputs.version }}`
+            - **提交：** [`${{ github.event.pull_request.head.sha }}`](https://github.com/${{ github.repository }}/commit/${{ github.event.pull_request.head.sha }})
+
+            **安装命令：**
+
+            ```bash
+            ${{ steps.publish-pkg.outputs.install_cmd }}
+            ```
+          comment-tag: preview-package
+          mode: upsert
+      - name: summary
+        run: |
+          {
+            echo '## 预览包已发布'
+            echo ''
+            echo "- **版本：** \`${{ steps.version-gen.outputs.version }}\`"
+            echo ''
+            echo '```bash'
+            echo '${{ steps.publish-pkg.outputs.install_cmd }}'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # npm 正式发布：Release PR 合并后触发
+  npm-publish:
+    needs: [release-please, build]
+    if: needs.release-please.outputs.releases_created == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          registry-url: 'https://registry.npmjs.org'
+      - uses: actions/download-artifact@v8
+        with:
+          name: package-build
+          path: .
+      - name: 发布到 npm
+        run: pnpm publish --no-git-checks --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: summary
+        run: |
+          {
+            echo '## npm 发布成功'
+            echo ''
+            echo "- **包名：** \`${APP_NAME}\`"
+            echo "- **版本：** \`$(node -p "require('./package.json').version")\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # GitHub Packages 发布：包名加 @owner scope
+  gh-packages:
+    needs: [release-please, build]
+    if: needs.release-please.outputs.releases_created == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          registry-url: 'https://npm.pkg.github.com'
+      - uses: actions/download-artifact@v8
+        with:
+          name: package-build
+          path: .
+      - name: 包名加 @owner scope
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          node -e "
+            const fs = require('fs')
+            const pkg = require('./package.json')
+            pkg.name = '@${OWNER}/' + pkg.name
+            pkg.publishConfig = { registry: 'https://npm.pkg.github.com/' }
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2))
+          "
+      - name: 发布到 GitHub Packages
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: summary
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          {
+            echo '## GitHub Packages 发布成功'
+            echo ''
+            echo '安装前在项目 `.npmrc` 配置：'
+            echo ''
+            echo '```ini'
+            echo "@${OWNER}:registry=https://npm.pkg.github.com"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # npmmirror 镜像同步，国内安装加速
+  mirror-sync:
+    needs: [npm-publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: 请求 npmmirror 同步
+        run: |
+          curl --max-time 60 --connect-timeout 10 -X PUT \
+            "https://registry-direct.npmmirror.com/-/package/${APP_NAME}/syncs"
+
+  # build 分支：main 推送后产物单提交同步，可直接从分支安装
+  build-branch:
+    needs: [build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v8
+        with:
+          name: package-build
+          path: ${{ runner.temp }}/artifacts
+      - name: 同步产物到 build 分支
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan build-tmp
+          git rm -rf --cached . -q
+          find . -mindepth 1 -maxdepth 1 -not -name '.git' -exec rm -rf {} +
+          cp -r "$RUNNER_TEMP/artifacts/." ./
+          git add -A
+          if git diff --cached --quiet; then
+            echo '产物无变化，跳过推送'
+          else
+            git commit -m 'chore(build): 同步构建产物'
+            git push -f origin build-tmp:build
+          fi

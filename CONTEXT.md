@@ -88,20 +88,21 @@ bot.user.self()
 
 ## 发布与自动化（GitHub Actions）
 
-参考 changesets / pkg.pr.new 主流实践，main 双通道分支模型：
+参考 karin-plugin-adapter-douyin 的 CI/CD 模式重构（2026-09-22）：release-please + 统一构建 + 多渠道发布。
 
 | Workflow | 触发 | 做什么 |
 |----------|------|--------|
-| ci.yml | pull_request | `pnpm check` + `build` + `docs:build` 门槛 |
-| preview.yml | pull_request / push main | pkg.pr.new 发布即时可装预览包：`pnpm add https://pkg.pr.new/<owner>/<repo>@<sha>` |
-| release.yml | push main | changesets/action：有 changeset → 开/更新 Version PR（汇总版本号 + CHANGELOG）；Version PR 合并 → `changeset publish` 发 npm + 自动 GitHub Release |
+| build.yml | pull_request / push main | 统一 CI/CD：check + build + docs:build 门槛 → 预览包（PR 下自动评论安装命令）→ release-please 版本管理 → 正式发布 npm / GitHub Packages / npmmirror 同步 / build 分支 |
 | docs.yml | push main | VitePress 构建并部署 GitHub Pages |
+| issue_management.yml | issues / schedule | Issue 质量检查（缺信息标 needs-info）+ 重复检测 + 7 天未补充自动关闭 |
 
-版本标准（semver，由 changeset 文件的 bump 类型决定）：
+版本管理（release-please，首版 initial-version 0.1.0）：
 
-- 功能/破坏面迭代 → `minor`（0.1.0 → 0.2.0）
-- 修复/小调整 → `patch`（0.2.0 → 0.2.1）
+- 提交信息走 Conventional Commits：`feat:` → minor（0.1.0 → 0.2.0），`fix:` → patch（0.2.0 → 0.2.1）
+- push main → 自动开/更新 Release PR（汇总版本号 + CHANGELOG.md）→ 合并 Release PR → 打 tag + GitHub Release → 正式发布链自动执行
 
-流程：普通 PR 需附 `.changeset/*.md`（`pnpm changeset` 生成，注明 minor/patch 与描述）→ 合并 main → 机器人开 Version PR → 审核合并 Version PR → 自动发布 + 更新日志。
+预览包版本派生（基于 package.json 版本）：PR → `x.y.z-alpha.PR号.提交数`，main push → `x.y.z-beta.提交数.时间戳`。
 
-仓库建好后需配置：npm `NPM_TOKEN` secret；GitHub Pages Source 选 GitHub Actions。
+发布渠道：npm 官方（provenance）、GitHub Packages（@owner/douyin.ts）、npmmirror 镜像同步、build 分支（产物单提交同步，可直接从分支安装）。
+
+配置文件：`.release-please-config.json` + `.release-please-manifest.json`。仓库建好后需配置：npm `NPM_TOKEN` secret；GitHub Pages Source 选 GitHub Actions；仓库设置允许 Actions 创建 PR。
