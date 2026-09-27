@@ -227,6 +227,42 @@ export class AndroidFrontierWs {
     })
   }
 
+  /**
+   * 一次性连接发送帧即关（无回执语义，411 输入状态用）。
+   * 返回 true 表示帧已成功写入连接；false 表示连接或发送失败。
+   */
+  async sendFireOnce (frame: Uint8Array): Promise<boolean> {
+    return new Promise((resolve) => {
+      const url = buildAndroidFrontierUrl(this.options.userId)
+      const socket = this.createSocket(url, this.buildHeaders())
+      let settled = false
+      // 兜底：open 后若 send 回调未触发（极端情况），放行
+      const failTimer = setTimeout(() => finish(false), 15_000)
+      const finish = (ok: boolean) => {
+        if (settled) return
+        settled = true
+        clearTimeout(failTimer)
+        socket.off('message', onMessage)
+        try {
+          if (socket.readyState === WebSocket.OPEN) socket.close()
+          else if (socket.readyState === WebSocket.CONNECTING) socket.terminate()
+        } catch {
+          // 连接已关闭，忽略
+        }
+        resolve(ok)
+      }
+      const onMessage = () => {
+        // 回执不等待，保持连接直至超时兜底关闭
+      }
+      socket.once('open', () => {
+        socket.send(frame, (error) => finish(!error))
+      })
+      socket.on('message', onMessage)
+      socket.once('close', () => finish(false))
+      socket.once('error', () => finish(false))
+    })
+  }
+
   private buildHeaders (): Record<string, string> {
     const headers: Record<string, string> = {
       'User-Agent': ANDROID_UA,

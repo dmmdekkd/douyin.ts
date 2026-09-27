@@ -1,20 +1,174 @@
-/* 抖音红主题色 */
 :root {
   --vp-c-brand-1: #fe2c55;
-  --vp-c-brand-2: #e02550;
+  --vp-c-brand-2: #e0244d;
   --vp-c-brand-3: #fe2c55;
   --vp-c-brand-soft: rgba(254, 44, 85, 0.14);
 }
 
 .dark {
-  --vp-c-brand-1: #ff5c7a;
-  --vp-c-brand-2: #fe2c55;
+  --vp-c-brand-1: #fe2c55;
+  --vp-c-brand-2: #ff5a7a;
   --vp-c-brand-3: #fe2c55;
   --vp-c-brand-soft: rgba(254, 44, 85, 0.16);
 }
 
-/* 首页 hero 标题用品牌色渐变 */
+/* 首页与页面背景光晕跟随品牌色，切主题色时整体氛围一致 */
+.VPHero {
+  background:
+    radial-gradient(85% 100% at 50% 0%, color-mix(in srgb, var(--vp-c-brand-1) 30%, transparent) 0%, color-mix(in srgb, var(--vp-c-brand-1) 6%, transparent) 48%, transparent 72%),
+    radial-gradient(45% 60% at 88% 18%, color-mix(in srgb, var(--vp-c-brand-1) 20%, transparent), transparent 62%);
+}
+
+.dark .VPHero {
+  background:
+    radial-gradient(85% 100% at 50% 0%, color-mix(in srgb, var(--vp-c-brand-1) 26%, transparent) 0%, transparent 62%),
+    radial-gradient(50% 65% at 90% 10%, color-mix(in srgb, var(--vp-c-brand-1) 24%, transparent), transparent 68%);
+}
+
+body {
+  background:
+    radial-gradient(60% 50% at 50% 0%, color-mix(in srgb, var(--vp-c-brand-1) 7%, transparent) 0%, transparent 60%),
+    var(--vp-c-bg);
+}
+
+.dark body {
+  background:
+    radial-gradient(60% 50% at 50% 0%, color-mix(in srgb, var(--vp-c-brand-1) 9%, transparent) 0%, transparent 60%),
+    var(--vp-c-bg);
+}
+
+/* ===== 导航与侧边栏过渡动画 ===== */
+
+/* 顶部导航链接：hover / active / 主题切换平滑 */
+.VPNavBar .nav-link .link {
+  transition:
+    color 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+    background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.VPNavBar .nav-link:hover .link,
+.VPNavBar .nav-link.active .link {
+  color: var(--vp-c-brand-1);
+}
+
+/* 侧边栏条目：hover / 当前项 / 主题切换平滑 */
+.VPSidebarItem > .item {
+  border-radius: 8px;
+  transition:
+    color 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+    background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.VPSidebarItem > .item:hover {
+  background: var(--vp-c-brand-soft);
+}
+
+.VPSidebarItem.is-active > .item {
+  background: var(--vp-c-brand-soft);
+}
+
+.VPSidebarItem.is-active > .item .text {
+  color: var(--vp-c-brand-1);
+  font-weight: 600;
+}
+
+/* 右侧大纲链接：hover / 选中平滑 */
+.VPDocAsideOutline .outline-link {
+  transition:
+    color 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+    background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 侧边栏子级展开：滑入淡入（官方收起是瞬时 display:none，展开做动画） */
+.VPSidebarItem .items > * {
+  animation: vp-nav-slide 0.25s ease;
+}
+
+@keyframes vp-nav-slide {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 主题 / 品牌色切换：主要界面层与品牌色元素整体平滑，避免瞬间跳变
+   动效与官方一致（0.25s + 官方缓动），hover 与切色共用同一节奏 */
+body,
+.VPNavBar,
+.VPSidebar,
+.VPFooter,
+.VPButton,
+.VPDocAside .outline-link,
+.VPDocFooter .pager-link,
+.vp-doc,
+.vp-doc :where(a, h1, h2, h3, h4, h5, h6, strong, em, code, blockquote, li, hr, table, th, td, .custom-block, .vp-code-group) {
+  transition:
+    color 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+    background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 毛玻璃：导航栏 / 侧边栏 / 手机端全屏菜单半透明背景 + 背景模糊
+   nav 背景由 content-body 绘制（官方非 home 时），blur 作用其后；
+   底色经 color-mix 取自页面底色，切主题/品牌色自然跟随
+   blur 同时上移一层，移动端顶部条（无 content-body 背景）也获得玻璃感
+   手机端汉堡打开的全屏菜单（VPNavScreen）官方为实色，一并玻璃化 */
 :root {
-  --vp-home-hero-name-color: transparent;
-  --vp-home-hero-name-background: -webkit-linear-gradient(120deg, #fe2c55, #ff7a45);
+  --vp-nav-bg-color: color-mix(in srgb, var(--vp-c-bg) 72%, transparent);
+  --vp-sidebar-bg-color: color-mix(in srgb, var(--vp-c-bg) 85%, transparent);
+  --vp-nav-screen-bg-color: color-mix(in srgb, var(--vp-c-bg) 82%, transparent);
+}
+
+.VPNavBar,
+.VPNavBar .content-body,
+.VPSidebar,
+.VPNavScreen {
+  backdrop-filter: blur(12px) saturate(180%);
+}
+
+/* 侧边栏与正文区隔：官方无右边框，毛玻璃同底色下面板层级不分明，
+   补一条 divider 分隔线，层叠关系一目了然（颜色随明暗主题） */
+.VPSidebar {
+  border-right: 1px solid var(--vp-c-divider);
+}
+
+/* 首页导航条保持官方透明，不做玻璃化
+   官方 :not(.home.top) 背景规则带 scoped 属性、特定性更高，需 !important 强制覆盖 */
+.VPNavBar.home,
+.VPNavBar.home .content-body {
+  background-color: transparent !important;
+  backdrop-filter: none !important;
+}
+
+/* 官方多语言/外观/社交/⋮ 全部移除，由 nav-bar-content-after 注入的自研面板统一承接 */
+.VPNavBar .content-body > .translations,
+.VPNavBar .content-body > .appearance,
+.VPNavBar .content-body > .social-links,
+.VPNavBar .content-body > .extra {
+  display: none;
+}
+
+/* 自研 ⋮ 面板根（VPFlyout.VPNavBarExtra）：官方 scoped 规则命中不到，需自行控制
+   :not(.extra) 排除官方 ⋮（官方组件的根额外带 extra class）
+   ≥768 显示，移动端走汉堡菜单 */
+.VPNavBar .content-body > .VPNavBarExtra:not(.extra) {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .VPNavBar .content-body > .VPNavBarExtra:not(.extra) {
+    display: block;
+  }
+}
+
+/* 移动端抽屉：品牌色设置区位于底部，与上方内容分隔 */
+#VPNavScreen .container > .group:last-child {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--vp-c-divider);
 }

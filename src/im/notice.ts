@@ -188,6 +188,50 @@ function groupMetadataNoticeFromPush (
   return undefined
 }
 
+/** messageType=50011 群成员进出 diff（block_status 1=被移出/0=加入）；与 aweType 系统消息双通道并存 */
+function groupMemberDiffFromPush (push: PushMessage): NoticeEvent | undefined {
+  if (push.conversationType !== 2) return undefined
+  // content 内 user_id 可达 16 位+，逐项包引号保精度（同 recv.ts parseContent）
+  let payload: Record<string, unknown> | undefined
+  try {
+    payload = asRecord(JSON.parse(push.content.replace(/"(\w+)"\s*:\s*(\d{16,})/g, '"$1":"$2"')))
+  } catch {
+    return undefined
+  }
+  const blockStatus = Number(payload?.['block_status'])
+  if (blockStatus !== 0 && blockStatus !== 1) return undefined
+  const members: NoticeUser[] = []
+  // updated_participant_info 的 blocked 与 block_status 一致；缺标记时退回 userID
+  for (const item of Array.isArray(payload?.['updated_participant_info']) ? payload?.['updated_participant_info'] : []) {
+    const it = asRecord(item)
+    if (!it || Number(it['blocked'] ?? -1) !== blockStatus) continue
+    const uid = firstString(it, ['user_id', 'uid', 'userId'])
+    if (!uid) continue
+    const secUid = firstString(it, ['sec_uid', 'secUid'])
+    members.push({ uid, ...(secUid ? { secUid } : {}) })
+  }
+  if (members.length === 0) {
+    for (const uid of Array.isArray(payload?.['userID']) ? payload!['userID'] : []) {
+      const text = uid == null ? '' : String(uid)
+      if (text && /^\d+$/.test(text)) members.push({ uid: text })
+    }
+  }
+  if (members.length === 0) return undefined
+  // 操作者即推送发送方（移出/加回由群主或管理员执行，仅有 uid）
+  const operators: NoticeUser[] = push.senderUid ? [{ uid: push.senderUid }] : []
+  const base = {
+    conversationId: push.conversationId,
+    conversationShortId: push.conversationShortId || push.conversationId,
+    conversationType: 2 as const,
+    members,
+    operators,
+    raw: push.raw,
+  }
+  return blockStatus === 1
+    ? { type: 'group.member-decrease', ...base, source: 'kick' as const }
+    : { type: 'group.member-increase', ...base, source: 'rejoin' as const }
+}
+
 /** 把 cmd500 中的协议命令消息与用户可见消息分流为 Notice 或 Request。 */
 export function noticeFromPush (push: PushMessage): NoticeEvent | RequestEvent | undefined {
   const payload = commandPayload(push.content)
@@ -198,15 +242,25 @@ export function noticeFromPush (push: PushMessage): NoticeEvent | RequestEvent |
   const groupMetadata = groupMetadataNoticeFromPush(push, payload)
   if (groupMetadata) return groupMetadata
   if (!COMMAND_MESSAGE_TYPES.has(push.messageType)) return undefined
+  if (push.messageType === 50011) {
+    const diff = groupMemberDiffFromPush(push)
+    if (diff) return diff
+  }
   if (push.messageType === 40001) {
-    const serverMessageId = firstString(payload, [
-      'server_message_id', 'serverMessageId', 'message_id', 'messageId',
-    ])
+    // content 恒为 {}，被撤回消息与操作者信息全在 ext（s:target_server_message_id / s:recall_uid）
+    const serverMessageId = push.ext?.['s:target_server_message_id']
+    const targetClientMessageId = push.ext?.['s:target_client_message_id']
+    const recallUid = push.ext?.['s:recall_uid']
+    const recallRole = push.ext?.['s:recall_role']
     return {
       type: 'message.recall',
       conversationId: push.conversationId,
       conversationType: push.conversationType,
       ...(serverMessageId ? { serverMessageId } : {}),
+      ...(targetClientMessageId ? { targetClientMessageId } : {}),
+      ...(recallUid ? { recallUid } : {}),
+      ...(recallRole ? { recallRole: Number(recallRole) } : {}),
+      ...(push.ext ? { ext: push.ext } : {}),
       raw: push.raw,
     }
   }
@@ -304,6 +358,25 @@ export function extractAndroidNotices (payload: Uint8Array): (NoticeEvent | Requ
             raw: { transport: 'android-frontier', wireTree: tree },
           })
         }
+      }
+      for (const typing of messageChildren(body, 504)) {
+        const content = commandPayload(fieldString(typing, 8) ?? '')
+        const inputStatus = Number(content?.['input_status'] ?? -1)
+        if (inputStatus < 0) continue
+        const conversationId = fieldString(typing, 4) ?? ''
+        const peerUid = fieldString(typing, 2) ?? ''
+        const senderUid = fieldString(typing, 22) ?? peerUid
+        if (!conversationId && !peerUid) continue
+        const peerSecUid = fieldString(typing, 3)
+        notices.push({
+          type: 'conversation.typing',
+          conversationId,
+          peerUid,
+          ...(peerSecUid ? { peerSecUid } : {}),
+          senderUid,
+          typing: inputStatus === 1,
+          raw: { transport: 'android-frontier', wireTree: tree },
+        })
       }
     }
   }

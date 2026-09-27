@@ -42,7 +42,7 @@ function isGroupConversationId (conversationId: string): boolean {
   return /^\d+$/.test(conversationId.trim())
 }
 
-function mapProtoConversationListItem (raw: Record<string, unknown>): GroupInfo {
+export function mapProtoConversationListItem (raw: Record<string, unknown>): GroupInfo {
   const conversationId = String(raw['conversationId'] ?? '')
   const conversationType = Number(raw['conversationType'] ?? 0)
   // 群头像在 conversationCoreInfo.icon（对齐 douyin-im）；extInfo 仅补 name 等
@@ -780,6 +780,236 @@ export async function setGroupName (
     ctx.deviceId,
   )
   return actionResponse(decoded, 'setConversationCoreInfo')
+}
+
+/* ---------------------------------------------------------------------------
+ * 群成员 / 会话操作（add/remove/leave/delete）—— 群成员变动事件的主动侧
+ * ------------------------------------------------------------------------- */
+
+/** cmd=650, /v1/conversation/add_participants — 拉人入群 */
+export async function addGroupMembers (
+  ctx: InboxContext,
+  address: ConversationAddress,
+  uids: string[],
+): Promise<ActionResult & { success?: string[]; failed?: string[] }> {
+  const decoded = await ctx.transport.sendCookieProto(
+    650,
+    address.inboxType ?? 1,
+    '/v1/conversation/add_participants',
+    {
+      conversationAddParticipants: {
+        conversationId: address.conversationId,
+        conversationShortId: address.conversationShortId
+          ? LONG.fromString(address.conversationShortId)
+          : undefined,
+        conversationType: address.conversationType,
+        participants: uids.map((uid) => LONG.fromString(uid)),
+        bizExt: {
+          invitation: JSON.stringify({
+            invitee: { source_app_id: 6383 },
+            invitor: { im_user_id: Number(ctx.platformUid) },
+            source_type: 6,
+          }),
+          source_type: '6',
+          ticket: '',
+        },
+      },
+    },
+    ctx.deviceId,
+  )
+  const result = actionResponse(decoded, 'conversationAddParticipants')
+  const payload = decoded['body'] as Record<string, unknown> | undefined
+  const body = payload?.['conversationAddParticipants'] as {
+    successParticipants?: Array<{ toString (): string }>
+    failedParticipants?: Array<{ toString (): string }>
+  } | undefined
+  return {
+    ...result,
+    ...(body?.successParticipants?.length ? { success: body.successParticipants.map(String) } : {}),
+    ...(body?.failedParticipants?.length ? { failed: body.failedParticipants.map(String) } : {}),
+  }
+}
+
+/** cmd=651, /v1/conversation/remove_participants — 移出群成员 */
+export async function removeGroupMembers (
+  ctx: InboxContext,
+  address: ConversationAddress,
+  uids: string[],
+): Promise<ActionResult> {
+  const decoded = await ctx.transport.sendCookieProto(
+    651,
+    address.inboxType ?? 1,
+    '/v1/conversation/remove_participants',
+    {
+      conversationRemoveParticipants: {
+        conversationId: address.conversationId,
+        conversationShortId: address.conversationShortId
+          ? LONG.fromString(address.conversationShortId)
+          : undefined,
+        conversationType: address.conversationType,
+        participants: uids.map((uid) => LONG.fromString(uid)),
+      },
+    },
+    ctx.deviceId,
+  )
+  return actionResponse(decoded, 'conversationRemoveParticipants')
+}
+
+/** cmd=652, /v1/conversation/leave — 退出群聊（响应为空 body） */
+export async function leaveGroup (
+  ctx: InboxContext,
+  address: ConversationAddress,
+): Promise<ActionResult> {
+  const decoded = await ctx.transport.sendCookieProto(
+    652,
+    address.inboxType ?? 1,
+    '/v1/conversation/leave',
+    {
+      leaveConversation: {
+        conversationId: address.conversationId,
+        conversationShortId: address.conversationShortId
+          ? LONG.fromString(address.conversationShortId)
+          : undefined,
+        conversationType: address.conversationType,
+      },
+    },
+    ctx.deviceId,
+  )
+  return actionResponse(decoded, 'leaveConversation')
+}
+
+/** cmd=603, /v1/conversation/delete — 删除会话（响应为空 body） */
+export async function deleteConversation (
+  ctx: InboxContext,
+  address: ConversationAddress,
+  options: { lastMessageIndex?: string } = {},
+): Promise<ActionResult> {
+  const decoded = await ctx.transport.sendCookieProto(
+    603,
+    address.inboxType ?? 1,
+    '/v1/conversation/delete',
+    {
+      deleteConversation: {
+        conversationId: address.conversationId,
+        conversationShortId: address.conversationShortId
+          ? LONG.fromString(address.conversationShortId)
+          : undefined,
+        conversationType: address.conversationType,
+        lastMessageIndex: LONG.fromString(options.lastMessageIndex ?? '0'),
+        badgeCount: 0,
+      },
+    },
+    ctx.deviceId,
+  )
+  return actionResponse(decoded, 'deleteConversation')
+}
+
+/* ---------------------------------------------------------------------------
+ * 会话设置 / 建群（cmd 921/609）
+ * ------------------------------------------------------------------------- */
+
+export interface ConversationSettingInput {
+  setStickOnTop?: boolean
+  setMute?: boolean
+  setFavorite?: boolean
+}
+
+/** cmd=921, /v1/conversation/set_setting_info — 会话设置（置顶/免打扰/收藏），响应回读完整设置 */
+export async function setConversationSetting (
+  ctx: InboxContext,
+  address: ConversationAddress,
+  input: ConversationSettingInput,
+): Promise<ActionResult & { setting?: Record<string, unknown> }> {
+  const decoded = await ctx.transport.sendCookieProto(
+    921,
+    address.inboxType ?? 1,
+    '/v1/conversation/set_setting_info',
+    {
+      setConversationSettingInfo: {
+        conversationId: address.conversationId,
+        conversationShortId: address.conversationShortId
+          ? LONG.fromString(address.conversationShortId)
+          : undefined,
+        conversationType: address.conversationType,
+        ...(input.setStickOnTop != null ? { setStickOnTop: input.setStickOnTop } : {}),
+        ...(input.setMute != null ? { setMute: input.setMute } : {}),
+        ...(input.setFavorite != null ? { setFavorite: input.setFavorite } : {}),
+      },
+    },
+    ctx.deviceId,
+  )
+  const result = actionResponse(decoded, 'setConversationSettingInfo')
+  const payload = decoded['body'] as Record<string, unknown> | undefined
+  const body = payload?.['setConversationSettingInfo'] as {
+    conversationSettingInfo?: Record<string, unknown>
+  } | undefined
+  return {
+    ...result,
+    ...(body?.conversationSettingInfo ? { setting: body.conversationSettingInfo } : {}),
+  }
+}
+
+export interface CreateGroupOptions {
+  /** 参与成员 uid（含创建者本人） */
+  participantUids: string[]
+  name?: string
+  description?: string
+}
+
+/** cmd=609, /v2/conversation/create — 创建群聊，返回创建出的会话 */
+export async function createGroup (
+  ctx: InboxContext,
+  options: CreateGroupOptions,
+): Promise<ActionResult & { group?: GroupInfo }> {
+  const name = options.name ?? ''
+  const description = options.description ?? ''
+  const decoded = await ctx.transport.sendCookieProto(
+    609,
+    1,
+    '/v2/conversation/create',
+    {
+      createConversationV2: {
+        conversationType: 2,
+        participants: options.participantUids.map((uid) => LONG.fromString(uid)),
+        name,
+        description,
+        bizExt: {
+          group_type: '1000',
+          show_at_profile: '1',
+          group_name: name,
+          group_desc: description,
+        },
+        ext: {
+          'a:s_group_type': '1000',
+          'a:s_group_category': '2',
+        },
+      },
+    },
+    ctx.deviceId,
+  )
+  const result = actionResponse(decoded, 'createConversationV2')
+  const payload = decoded['body'] as Record<string, unknown> | undefined
+  const body = payload?.['createConversationV2'] as {
+    conversation?: {
+      conversationId?: string
+      conversationShortId?: string | { toString (): string }
+      conversationType?: number
+    }
+  } | undefined
+  const group = body?.conversation
+  if (!group) return result
+  return {
+    ...result,
+    group: {
+      conversationId: String(group.conversationId ?? ''),
+      conversationShortId: String(group.conversationShortId ?? ''),
+      conversationType: Number(group.conversationType ?? 2),
+      isGroup: true,
+      name,
+      members: [],
+      lastMessageTime: 0,
+    },
+  }
 }
 
 /** cmd=2025, /v1/conversation/ack_apply — 审批入群申请 */

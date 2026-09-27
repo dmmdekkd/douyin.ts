@@ -6,26 +6,43 @@ import {
   buildFileContent,
   buildDesktopTextContent,
   buildReplyPayload,
+  buildShareContent,
+  buildUserCardContent,
+  buildCardContent,
+  buildLocationContent,
+  buildGroupCardContent,
   normalizeDesktopTextMessageContent,
 } from './content.js'
+import { sendCmd411 } from './transport.js'
 import type { ProtoTransport } from './transport.js'
 import type { Log } from '../log.js'
+import type { Http } from '../http/client.js'
 import type {
   ConversationAddress,
   SendMessageItem,
   SendMessageReference,
   SendMessageResponse,
   ForwardNode,
+  ShareItem,
+  MsgBody,
 } from './types.js'
-import type { ImageAsset, FileAssetPayload, TextMention } from './content.js'
+import type { TextMention } from './content.js'
+import { isInput } from './source.js'
+import type { UserCard, ImageAsset, FileAsset } from './media.js'
 
 const LONG = protobuf.util.Long as unknown as { fromString (s: string): unknown }
 
-/** 发送上下文：统一 HTTP cookie 通道（native ImOption profile） */
+/** 发送上下文：统一 HTTP cookie 通道（native ImOption profile）+ WS cmd411 输入状态通道 */
 export interface SendContext {
   transport: ProtoTransport
   deviceId: string
   log: Log
+  /** 直连 HTTP 客户端（云端接口：合并转发凭证/视频地址等） */
+  http: Http
+  /** 账号 uid（cmd411 帧 envelope device_id） */
+  userId: string
+  /** 浏览器 Cookie 串（cmd411 WS 握手鉴权） */
+  cookies: string
 }
 
 function encodeReference (reference: SendMessageReference): Record<string, unknown> {
@@ -39,12 +56,12 @@ function encodeReference (reference: SendMessageReference): Record<string, unkno
   }
 }
 
-/** cmd=100 /v1/message/send — 统一发送（文本/媒体/引用全走此路径） */
+/** cmd=100 /v1/message/send — 统一发送（文本/媒体/引用/编辑/盖楼全走 HTTP）。 */
 export async function send (
   ctx: SendContext,
   options: SendMessageItem,
 ): Promise<SendMessageResponse> {
-  const clientMessageId = randomUUID()
+  const clientMessageId = options.clientMessageId ?? randomUUID()
   const timestamp = Date.now()
   const decoded = await ctx.transport.sendCookieProto(
     100,
@@ -77,7 +94,8 @@ export async function send (
     ctx.log.info('消息已提交，审核中（10502），对方可能延迟可见')
   } else if (result.statusCode !== 0) {
     ctx.log.warn(
-      `发送被拒: conversationId=${options.conversationId} ` +
+      `发送被拒: send={id:${options.conversationId} type:${options.conversationType ?? 1} ` +
+      `short:${options.conversationShortId}} ` +
       `statusCode=${result.statusCode} check=${result.checkCode ?? '-'} detail=${result.statusMsg}`,
     )
   }
@@ -99,12 +117,161 @@ export async function sendText (
   })
 }
 
+/** 文本 + @ 提及合成 content：@ 渲染「@昵称 」占位（无昵称退回 uid），位置记录供 richTextInfos 使用 */
+function textWithAts (text: string, ats?: Array<{ uid: string; nickname?: string }>, conId?: string): { content: string; mentions: TextMention[] } {
+  const list = ats ?? []
+  if (!list.length) return { content: text, mentions: [] }
+  let content = text
+  const mentions: TextMention[] = []
+  for (const at of list) {
+    const piece = `@${at.nickname ?? at.uid} `
+    mentions.push({ uid: at.uid, conId, location: content.length, length: piece.length })
+    content += piece
+  }
+  return { content: buildDesktopTextContent(content, mentions), mentions }
+}
+
+/**
+ * 统一发送：type 判别各成一条消息（text 合 messageType=7、image 27 / video 30 / file 6 /
+ * share 8 / user 25 / forward 136）；媒体字段须为已上传资产，输入源先经 bot.msg.send 自动上传。
+ */
+export async function sendBody (
+  ctx: SendContext,
+  address: ConversationAddress,
+  body: MsgBody,
+  opts?: { clientMessageId?: string },
+): Promise<SendMessageResponse> {
+  switch (body.type) {
+    case 'text': {
+      const { content, mentions } = textWithAts(body.text, body.ats, address.conversationId)
+      return send(ctx, {
+        ...address,
+        content,
+        messageType: 7,
+        ...(mentions.length ? { mentionedUsers: [...new Set(mentions.map(m => m.uid))] } : {}),
+        clientMessageId: opts?.clientMessageId,
+      })
+    }
+    case 'image': {
+      if (isInput(body.image)) throw new Error('图片输入源须先经 bot.msg.send 自动上传（或传预上传资产）')
+      return sendImage(ctx, { ...address, image: body.image, clientMessageId: opts?.clientMessageId })
+    }
+    case 'video': {
+      const video = body.video
+      if ('source' in video) throw new Error('视频输入源须先经 bot.msg.send 自动上传（或传预上传资产）')
+      if ('asset' in video) {
+        const { asset, poster, width, height } = video
+        return sendVideo(ctx, {
+          ...address,
+          video: {
+            tkey: asset.tkey,
+            skey: asset.skey,
+            md5: asset.md5,
+            ...(poster ? { poster } : {}),
+            ...(width !== undefined ? { width } : {}),
+            ...(height !== undefined ? { height } : {}),
+          },
+          clientMessageId: opts?.clientMessageId,
+        })
+      }
+      return sendVideo(ctx, { ...address, video, clientMessageId: opts?.clientMessageId })
+    }
+    case 'file': {
+      const file = body.file
+      if ('source' in file) throw new Error('文件输入源须先经 bot.msg.send 自动上传（或传预上传资产）')
+      return sendFile(ctx, { ...address, file: 'asset' in file ? file.asset : file, clientMessageId: opts?.clientMessageId })
+    }
+    case 'share':
+      return sendShare(ctx, { ...address, item: body.share, clientMessageId: opts?.clientMessageId })
+    case 'userCard':
+      return sendUserCard(ctx, { ...address, user: body.user, clientMessageId: opts?.clientMessageId })
+    case 'forward':
+      return sendMergeForward(ctx, { ...address, nodes: body.nodes, selfUid: ctx.userId, clientMessageId: opts?.clientMessageId })
+    case 'card':
+      // 互动卡原样回传：patch 复用收侧载荷（含官方签名），description/push_detail 取展示文本
+      return send(ctx, {
+        ...address,
+        content: buildCardContent(body.card, body.text ?? body.card.title ?? ''),
+        messageType: 110,
+        clientMessageId: opts?.clientMessageId,
+      })
+    case 'location':
+      return send(ctx, {
+        ...address,
+        content: buildLocationContent(body.location),
+        messageType: 502,
+        clientMessageId: opts?.clientMessageId,
+      })
+    case 'groupCard':
+      // 群聊邀请卡原样回传：from_uid 缺省以发送者身份填充，title/desc 自动构造
+      return send(ctx, {
+        ...address,
+        content: buildGroupCardContent(body.groupCard, ctx.userId),
+        messageType: 58,
+        clientMessageId: opts?.clientMessageId,
+      })
+    default:
+      ctx.log.warn(`不支持发送的消息类型 ${body.type}，已跳过`)
+      throw new Error(`不支持发送的消息类型 ${body.type}`)
+  }
+}
+
+/**
+ * 上报输入状态（让对方显示「正在输入…」）。
+ * 走 Android Frontier WS cmd=411（接收侧是 WS 504 推送）；
+ * 无确认回执（fire-and-forget），返回 true 仅表示帧已发出。
+ */
+export async function sendTyping (
+  ctx: SendContext,
+  address: ConversationAddress,
+  typing: boolean,
+): Promise<boolean> {
+  return sendCmd411({
+    userId: ctx.userId,
+    cookies: ctx.cookies,
+    conversationId: address.conversationId,
+    conversationShortId: address.conversationShortId || '0',
+    conversationType: address.conversationType ?? 1,
+    typing,
+  })
+}
+
+export interface VoiceCallResult {
+  /** call 阶段 VoipInfo.channel_id / create 失败的 channel_id */
+  channelId?: string
+  /** VoipStatus */
+  status?: number
+  /** CallVoipResponseBody.check_code */
+  checkCode?: string
+  /** CallVoipResponseBody.check_message */
+  checkMessage?: string
+  /** create 阶段 VoipStatusCode（非 0 表示创建失败） */
+  statusCode?: number
+}
+
+/**
+ * 发起语音通话——未支持。
+ * 实测证伪（保留签名便于收敛）：cmd2011/2012 走 Android WS 服务端仅回框架 ACK 无业务响应；
+ * imapi3 HTTP 通道路由表（StatusCodeRouteNotFound 全量列举）无任何 voip/voice 命令；
+ * 官方桌面端 VOIP 走独立未公开端点（需 App 专属签名）。不再发起任何网络请求。
+ */
+export async function startVoiceCall (
+  ctx: SendContext,
+  address: ConversationAddress,
+  calleeUid: string,
+): Promise<VoiceCallResult> {
+  ctx.log.warn(`语音通话未支持: 被叫=${calleeUid} 会话=${address.conversationShortId || '-'}`)
+  return { statusCode: -1, checkMessage: '服务端无 VOIP 通道' }
+}
+
 export interface SendForwardOptions extends ConversationAddress {
   nodes: ForwardNode[]
   /** 发送者 uid（bot 自身） */
   selfUid: string
   /** 发送者 secUid（bot 自身） */
   selfSecUid?: string
+  /** 复用原 cmid（同会话幂等去重兜底，编辑不支持）；缺省随机 */
+  clientMessageId?: string
 }
 
 /** 节点文本摘要：文字原样，媒体占位（list_content.text） */
@@ -125,9 +292,17 @@ function nodeMessageType (message: Array<{ type: string }>): { msgType: number; 
   return { msgType: 7, aweType: 700 }
 }
 
+/** JSON 序列化：BigInt 输出为裸数字（uid/msg_id 等 19 位大整数超出 Number 精度，服务端按数字解析） */
+function rawJson (value: unknown): string {
+  return JSON.stringify(value, (_, v) => (typeof v === 'bigint' ? `\u0000${v}\u0000` : v))
+    .replace(/"\u0000(-?\d+)\u0000"/g, '$1')
+}
+
 /**
- * 合并转发（messageType=136）：list_content 为节点摘要，msg_ids 为节点引用。
- * 服务端按收到的同形内容渲染，msg_id 用客户端生成的数字串。
+ * 合并转发（messageType=136）：list_content 为节点预览摘要，msg_ids 引用会话真实消息
+ * （msg_id 须为原消息 serverMessageId）。协议限制：新版 App 点开按 upload_key 从云端拉取
+ * 记录渲染，而云端注册接口 merge_msg_card/prepare 仅部署在 App 域（需 App 签名与登录态，
+ * web/桌面域 status 4），故 SDK 只能发摘要卡片，接收端点开无内容。
  */
 export async function sendMergeForward (
   ctx: SendContext,
@@ -136,25 +311,28 @@ export async function sendMergeForward (
   if (!options.nodes.length) throw new Error('合并转发节点为空')
   const timestamp = Date.now()
   const listContent = options.nodes.map(node => ({
-    text: node.text,
-    msgid: node.msgId,
+    msgid: BigInt(node.msgId),
     nick_name: node.nickname,
+    text: node.text,
   }))
   const msgIds = options.nodes.map(node => ({
-    msg_id: node.msgId,
+    msg_id: BigInt(node.msgId),
     msg_type: node.msgType,
     awe_type: node.aweType,
     show_flag: true,
-    uid: Number(node.uid),
+    uid: BigInt(node.uid),
     ...(node.secUid ? { sec_uid: node.secUid } : {}),
     create_time: node.createTime ?? timestamp,
     ref_msg_invisible: 0,
   }))
-  return send(ctx, {
-    ...options,
-    content: JSON.stringify({ list_content: listContent, msg_ids: msgIds }),
-    messageType: 136,
+  const generatedJson = rawJson({
+    list_content: listContent,
+    msg_ids: msgIds,
+    origin_conv_id: BigInt(options.conversationShortId),
+    title: `${options.nodes[0]?.nickname ?? ''} 的聊天记录`,
   })
+  const content = generatedJson
+  return send(ctx, { ...options, content, messageType: 136 })
 }
 
 /** 节点数组 → ForwardNode（客户端生成 19 位数字 msg_id） */
@@ -182,6 +360,8 @@ export function buildForwardNodes (
 export interface SendMediaOptions extends ConversationAddress {
   /** uploadImage 返回的图片资产 */
   image: ImageAsset
+  /** 复用原 cmid（同会话幂等去重兜底，编辑不支持）；缺省随机 */
+  clientMessageId?: string
 }
 
 /** 发送图片（gif → aweType 2703，其余 2702；messageType=27） */
@@ -197,11 +377,13 @@ export interface SendVideoOptions extends ConversationAddress {
     tkey: string
     skey: string
     md5: string
-    poster: ImageAsset
-    width: number
-    height: number
+    poster?: ImageAsset
+    width?: number
+    height?: number
     checkPics?: string[]
   }
+  /** 复用原 cmid（同会话幂等去重兜底，编辑不支持）；缺省随机 */
+  clientMessageId?: string
 }
 
 /** 发送视频（messageType=30，content 无 aweType） */
@@ -214,15 +396,45 @@ export async function sendVideo (
 
 export interface SendFileOptions extends ConversationAddress {
   /** uploadFile 返回的文件资产 */
-  file: FileAssetPayload
+  file: FileAsset
+  /** 复用原 cmid（同会话幂等去重兜底，编辑不支持）；缺省随机 */
+  clientMessageId?: string
 }
 
-/** 发送文件（messageType=6，aweType=15001） */
+/** 发送文件（messageType=6、aweType=15001；9 会被客户端判「请升级最新版」，6 可发出但部分客户端渲染异常） */
 export async function sendFile (
   ctx: SendContext,
   options: SendFileOptions,
 ): Promise<SendMessageResponse> {
   return send(ctx, { ...options, content: buildFileContent(options.file), messageType: 6 })
+}
+
+export interface SendShareOptions extends ConversationAddress {
+  item: ShareItem
+  /** 复用原 cmid（同会话幂等去重兜底，编辑不支持）；缺省随机 */
+  clientMessageId?: string
+}
+
+/** 发送作品分享卡片（messageType=8 / aweType=800） */
+export async function sendShare (
+  ctx: SendContext,
+  options: SendShareOptions,
+): Promise<SendMessageResponse> {
+  return send(ctx, { ...options, content: buildShareContent(options.item, ctx.userId), messageType: 8 })
+}
+
+export interface SendUserCardOptions extends ConversationAddress {
+  user: UserCard
+  /** 复用原 cmid（同会话幂等去重兜底，编辑不支持）；缺省随机 */
+  clientMessageId?: string
+}
+
+/** 发送用户名片卡片（messageType=25 / aweType=0） */
+export async function sendUserCard (
+  ctx: SendContext,
+  options: SendUserCardOptions,
+): Promise<SendMessageResponse> {
+  return send(ctx, { ...options, content: buildUserCardContent(options.user), messageType: 25 })
 }
 
 export interface ReplyOptions extends ConversationAddress {

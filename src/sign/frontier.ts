@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto'
 import { aBogus } from './bogus.js'
 import { UA } from './const.js'
 
-/** cmd=100 等需 WS 帧签名的命令 */
-export const WS_SIGN_CMDS = new Set([100, 609, 610, 611])
+/** 需 WS 帧签名的命令（100 发送、411 输入状态、609/610/611 会话） */
+export const WS_SIGN_CMDS = new Set([100, 411, 609, 610, 611])
 
 export interface FrontierOpts {
   userAgent?: string

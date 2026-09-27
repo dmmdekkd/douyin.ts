@@ -1,13 +1,23 @@
 export { Bot, chatIdOf } from './bot.js'
-export type { BotOpts, BotEvent, BotEventMap, BotMessage, SendContent } from './bot.js'
+export type {
+  BotOpts, BotEvent, BotEventMap, BotMessage,
+} from './bot.js'
 export { login } from './login.js'
+export { decryptCencMp4 } from './im/index.js'
 export { createLog } from './log.js'
 export type { LoginOpts, Session, MfaInfo, QrStatus } from './login.js'
 export type { Log } from './log.js'
 export type {
   InboundMessage,
+  MsgBody,
+  RecvBody,
   NoticeEvent,
+  ReadEvent,
   RequestEvent,
+  StatusEvent,
+  GroupMemberChange,
+  GroupMemberUpdate,
+  VoipCallEvent,
   WsReconnectEvent,
   WsCloseEvent,
   FriendInfo,
@@ -20,13 +30,37 @@ export type {
   ActionResult,
   RecallResult,
   ConversationAddress,
+  UserProfile,
+  ShareItem,
+  ProfileDetail,
+  AwemeDetail,
+  OnlineItem,
+  ReadSwitchItem,
+  StrategyConfig,
+  ReadIndexRow,
+  MinIndexRow,
+  UserMessageQuery,
+  ClientAckItem,
+  StrangerListOptions,
+  GetPeerRequest,
+  GetPeerResult,
+  Card,
 } from './im/index.js'
 export type {
   ImageAsset,
   VideoAsset,
-  FileAssetPayload,
   FileUploadAsset,
+  VideoSend,
   TextMention,
   LinkCard,
   UserCard,
+  LocationCard,
+  GroupCard,
+  MediaInput,
+  EncryptedVideoUrl,
+  EmojiInfo,
+  Sticker,
+  StickerImage,
+  StickerPage,
+  StickerCollectResult,
 } from './im/index.js'

@@ -1,16 +1,14 @@
-import type { SendMessageReference, ParsedMessageContent, ForwardNode } from './types.js'
-import type { ImageFormat, ImageResource, VideoResource } from './media.js'
+import type { SendMessageReference, RecvBody, ForwardNode, ShareItem, Card } from './types.js'
+import type { ImageFormat, ImageResource, VideoResource, UserCard, ImageAsset, FileAsset, LocationCard, GroupCard } from './media.js'
 
-export type { ParsedMessageContent } from './types.js'
-
-export interface ImageAsset {
-  oid: string
-  skey: string
-  md5: string
-  dataSize: number
-  width: number
-  height: number
-  format?: Exclude<ImageFormat, 'unknown'>
+/** 文本 @ 提及（richTextInfos 元数据；收侧无昵称，text 为发侧可选） */
+export interface TextMention {
+  uid: string
+  /** 会话 id（官方 info.con_id，@ 归属会话） */
+  conId?: string
+  text?: string
+  location: number
+  length: number
 }
 
 export interface ReplyMessageOptions {
@@ -40,30 +38,38 @@ export function buildCreatorTextContent (text: string): string {
   return JSON.stringify({ text, aweType: 774 })
 }
 
-/** 文本 @ 提及（richTextInfos 元数据） */
-export interface TextMention {
-  uid: string
-  text: string
-  location: number
-  length: number
-}
-
 /** Desktop IM 文本 content；字段和值与 jumpbyte 的成功 HAR 保持一致。 */
 export function buildDesktopTextContent (text: string, mentions: TextMention[] = []): string {
   return JSON.stringify({
     aweType: 700,
     type: 0,
+    instruction_type: 0,
+    item_type_local: -1,
     richTextInfos: mentions.map(mention => ({
       infoType: 1,
       location: mention.location,
       length: mention.length,
-      info: { uid: mention.uid },
+      info: {
+        uid: mention.uid,
+        ...(mention.conId ? { con_id: mention.conId } : {}),
+      },
     })),
     text,
+    createdAt: 0,
+    is_card: false,
+    msgHint: '',
   })
 }
 
-export function buildImageContent (image: ImageAsset): string {
+export function buildImageContent (image: {
+  oid: string
+  skey: string
+  md5: string
+  dataSize: number
+  width: number
+  height: number
+  format?: ImageFormat
+}): string {
   return JSON.stringify({
     resource_url: {
       oid: image.oid,
@@ -80,16 +86,8 @@ export function buildImageContent (image: ImageAsset): string {
   })
 }
 
-export interface FileAssetPayload {
-  uri: string
-  skey: string
-  md5: string
-  name: string
-  dataSize: number
-}
-
 /** 文件消息 content（messageType=6，aweType=15001，字段与官方接收样例同形） */
-export function buildFileContent (file: FileAssetPayload): string {
+export function buildFileContent (file: FileAsset): string {
   return JSON.stringify({
     aweType: 15001,
     uri: file.uri,
@@ -108,17 +106,140 @@ export function buildVideoContent (video: {
   tkey: string
   skey: string
   md5: string
-  poster: ImageAsset
-  width: number
-  height: number
+  poster?: ImageAsset
+  width?: number
+  height?: number
   checkPics?: string[]
 }): string {
   return JSON.stringify({
     video: { tkey: video.tkey, md5: video.md5, skey: video.skey },
-    poster: { oid: video.poster.oid, md5: video.poster.md5, skey: video.poster.skey },
-    height: video.height,
-    width: video.width,
+    ...(video.poster ? { poster: { oid: video.poster.oid, md5: video.poster.md5, skey: video.poster.skey } } : {}),
+    ...(video.width !== undefined ? { width: video.width } : {}),
+    ...(video.height !== undefined ? { height: video.height } : {}),
     check_pics: video.checkPics ?? [],
+  })
+}
+
+/** 作品分享卡片 content（messageType=8 / aweType=800，结构对齐 Android 分享帧），share_id 首段为自己的 uid */
+export function buildShareContent (item: ShareItem, senderUid: string): string {
+  const image = (uri: string): object => ({
+    data_size: 0,
+    height: 720,
+    uri,
+    url_list: [uri],
+    width: 540,
+  })
+  return JSON.stringify({
+    aweType: 800,
+    awemeType: 0,
+    content_name: item.authorName ?? '',
+    content_title: item.title ?? item.itemId,
+    ...(item.coverUrl
+      ? { cover_height: 1440, cover_url: image(item.coverUrl), cover_width: 2560 }
+      : {}),
+    createdAt: 0,
+    is_aigc: false,
+    is_card: false,
+    is_hot_spot_video: false,
+    is_story: false,
+    itemId: item.itemId,
+    item_mask_status: 0,
+    msgHint: '',
+    need_skip_strange: 0,
+    scene_type: 0,
+    ...(item.secUid ? { secUID: item.secUid } : {}),
+    share_id: `${senderUid}_${Date.now()}_${item.itemId}`,
+    share_with_timestamp: -1,
+    uid: item.uid,
+  })
+}
+
+/** 用户名片卡片 content（messageType=25 / aweType=0，结构对齐 Android 名片帧）；uid 与 secUid 须真实，服务端可能据 uid 重建 */
+export function buildUserCardContent (item: UserCard): string {
+  return JSON.stringify({
+    ...(item.avatarUrl
+      ? { avatar: { data_size: 0, height: 0, uri: item.avatarUrl, url_list: [item.avatarUrl], width: 0 } }
+      : {}),
+    aweType: 0,
+    createdAt: 0,
+    ...(item.coverItems?.length ? { cover_items: item.coverItems } : {}),
+    ...(item.coverUrls?.length
+      ? { cover_url: item.coverUrls.map(url => ({ data_size: 0, height: 0, uri: '', url_list: [url], width: 0 })) }
+      : {}),
+    ...(item.desc ? { desc: item.desc } : {}),
+    ...(item.followerCount ? { follower_count: item.followerCount } : {}),
+    is_card: false,
+    is_secret: false,
+    msgHint: '',
+    name: item.name ?? '',
+    push_detail: item.name ?? '',
+    ...(item.secUid ? { secUID: item.secUid } : {}),
+    source: 'private_chat',
+    uid: item.uid,
+  })
+}
+
+/** 构造互动卡 content（messageType=110）：description/push_detail 即展示文本，patch 原样回填，aweType 还原接收值 */
+export function buildCardContent (card: Card, title: string): string {
+  return JSON.stringify({
+    aweType: card.aweType || 110402,
+    im_dynamic_patch: card.patch,
+    description: title,
+    push_detail: title,
+  })
+}
+
+/** 构造位置消息 content（messageType=502 POI 定位）：字段与官方接收样例同形，封面用 cover_info.resource_url */
+export function buildLocationContent (location: LocationCard): string {
+  return JSON.stringify({
+    aweType: 0,
+    ...(location.awemePoiId ? { aweme_poi_id: location.awemePoiId } : {}),
+    cover_info: {
+      resource_url: {
+        data_size: 0,
+        height: 0,
+        uri: location.uri ?? '',
+        url_list: location.urlList ?? [],
+        width: 0,
+      },
+    },
+    createdAt: 0,
+    is_card: false,
+    latitude: location.latitude,
+    longitude: location.longitude,
+    msgHint: '',
+    poi_address: location.address,
+    ...(location.poiId ? { poi_id: location.poiId } : {}),
+    poi_name: location.name,
+  })
+}
+
+/** 构造群聊邀请卡 content（messageType=58 / aweme_invite_card）；from_uid 缺省以发送者身份填充，title/desc 参照官方文案 */
+export function buildGroupCardContent (card: GroupCard, senderUid: string): string {
+  const name = card.groupName
+  const inviter = card.fromNickname ?? card.fromUid ?? senderUid
+  return JSON.stringify({
+    aweme_invite_card: {
+      scene: 0,
+      card_type: 1,
+      ...(card.iconUrl ? { group_icon: { url_list: [card.iconUrl] } } : {}),
+      group_name: name,
+      ...(card.memberCount !== undefined ? { group_member_count: card.memberCount } : {}),
+      conversation_id: card.conversationId,
+      conversation_short_id: card.conversationId,
+      ...(card.ownerNickname ? { group_owner_nickname: card.ownerNickname } : {}),
+      from_uid: card.fromUid ?? senderUid,
+      ...(card.fromSecUid ? { sec_from_uid: card.fromSecUid } : {}),
+      group_create_type: '0',
+      need_cut_icon: 1,
+      ...(card.ownerUid ? { group_owner_uid: card.ownerUid } : {}),
+      ...(card.ownerSecUid ? { sec_group_owner_uid: card.ownerSecUid } : {}),
+      source: 0,
+    },
+    title: `邀请你加入「${name}」`,
+    desc: `${inviter} 邀请你加入「${name}」群聊，快来看下吧。`,
+    type_desc: `${name}群聊`,
+    push_detail: `邀请你加入${name}`,
   })
 }
 
@@ -177,61 +298,111 @@ function imageFromObject (value: Record<string, unknown>): ImageResource | undef
   }
 }
 
-/** wire 消息类型用于区分同形 resource_url（如语音 vs 图片） */
-export function parseMessageContent (content: string, messageType?: number): ParsedMessageContent {
+/** 收侧 @ 提及：解析 richTextInfos，仅 infoType=1（@ 人）计入，位置/长度用于从原 text 剥离 */
+function mentionsFromValue (value: Record<string, unknown>): TextMention[] | undefined {
+  const infos = value['richTextInfos']
+  if (!Array.isArray(infos) || infos.length === 0) return undefined
+  const mentions = infos
+    .map(item => {
+      const record = objectValue(item)
+      if (!record || Number(record['infoType']) !== 1) return undefined
+      const info = objectValue(record['info'])
+      return {
+        uid: String(info?.['uid'] ?? ''),
+        location: Number(record['location'] ?? 0),
+        length: Number(record['length'] ?? 0),
+      }
+    })
+    .filter((m): m is TextMention => m !== undefined && m.uid !== '')
+  return mentions.length ? mentions : undefined
+}
+
+/** 按 mentions 的 location/length 从原文本剥离 @ 片段；从后往前裁避免偏移 */
+function stripMentions (text: string, mentions: TextMention[]): string {
+  const parts = [...mentions].sort((a, b) => b.location - a.location)
+  let rest = text
+  for (const m of parts) {
+    if (m.location < 0 || m.location + m.length > rest.length) continue
+    rest = rest.slice(0, m.location) + rest.slice(m.location + m.length)
+  }
+  return rest
+}
+
+/**
+ * 解析 wire content 为收侧消息体（RecvBody）：type 判别 + 载荷字段平铺，媒体恒为资产/资源形态。
+ * text 恒为可读展示文本（含媒体占位）；@ 提及并入 text 的 ats（纯 @ 消息 text 保留原文）。
+ */
+export function parseBody (content: string, messageType?: number): RecvBody {
   let value: Record<string, unknown>
   try {
-    const decoded: unknown = JSON.parse(content)
-    if (!objectValue(decoded)) return { kind: 'unknown', text: content, aweType: 0, value: content }
+    // JSON.parse 前把 16+ 位整数包成字符串：uid/msg_id 等 19 位大整数超出 Number 精度，直接 parse 会丢尾数
+    const decoded: unknown = JSON.parse(content.replace(/"(\w+)"\s*:\s*(\d{16,})/g, '"$1":"$2"'))
+    if (!objectValue(decoded)) return { type: 'unknown', text: content, raw: content }
     value = decoded as Record<string, unknown>
   } catch {
-    return { kind: 'text', text: content, aweType: 0 }
+    return { type: 'text', text: content }
   }
   const aweType = Number(value['aweType'] ?? value['awe_type'] ?? 0)
   const text = String(value['text'] ?? value['content'] ?? value['display_name'] ?? '')
   if (messageType === 17) {
     const resource = objectValue(value['resource_url'])
     return {
-      kind: 'audio', text, aweType,
+      type: 'audio', text: text || '[语音]',
       audio: { urls: stringArray(resource?.['url_list']), uri: String(resource?.['uri'] ?? '') },
-      value,
     }
   }
   if (messageType === 6 || messageType === 150) {
     return {
-      kind: 'file', text: String(value['name'] ?? ''), aweType, value,
+      type: 'file', text: String(value['name'] ?? '') || '[文件]',
       file: { uri: String(value['uri'] ?? ''), skey: String(value['skey'] ?? ''), md5: String(value['md5'] ?? ''), name: String(value['name'] ?? ''), dataSize: Number(value['data_size'] ?? 0) },
     }
   }
   // 通话状态/一起看邀请：hint 即展示文本
   if (messageType === 73 || messageType === 90) {
-    return { kind: 'text', text: String(value['hint'] ?? ''), aweType }
+    return { type: 'text', text: String(value['hint'] ?? '') }
   }
   // 系统引导模板（如开启消息通知）：无内容价值，置空文本由分发层过滤
   if (messageType === 1 && aweType === 133) {
-    return { kind: 'text', text: '', aweType }
+    return { type: 'text', text: '' }
   }
   if (messageType === 26) {
     return {
-      kind: 'link', text: String(value['title'] ?? ''), aweType, value,
+      type: 'link', text: String(value['title'] ?? ''),
       link: { url: String(value['link_url'] ?? ''), title: String(value['title'] ?? ''), description: String(value['desc'] ?? ''), coverUrl: String(value['cover_url'] ?? '') },
     }
   }
   if (messageType === 25) {
+    const coverArr = value['cover_url'] as { url_list?: unknown[] }[] | undefined
     return {
-      kind: 'user', text: String(value['name'] ?? ''), aweType, value,
-      user: { uid: String(value['uid'] ?? ''), secUid: String(value['secUID'] ?? ''), name: String(value['name'] ?? ''), avatarUrl: stringArray(objectValue(value['avatar'])?.['url_list'])[0] ?? '' },
+      type: 'userCard', text: String(value['name'] ?? ''),
+      user: {
+        uid: String(value['uid'] ?? ''),
+        secUid: String(value['secUID'] ?? ''),
+        name: String(value['name'] ?? ''),
+        avatarUrl: stringArray(objectValue(value['avatar'])?.['url_list'])[0] ?? '',
+        ...(value['desc'] !== undefined && value['desc'] !== '' ? { desc: String(value['desc']) } : {}),
+        ...(value['follower_count'] !== undefined ? { followerCount: String(value['follower_count']) } : {}),
+        ...(Array.isArray(value['cover_items']) && value['cover_items'].length ? { coverItems: stringArray(value['cover_items']) } : {}),
+        ...(Array.isArray(coverArr) && coverArr.length
+          ? { coverUrls: coverArr.map(c => stringArray(c.url_list)?.[0] ?? '').filter(Boolean) }
+          : {}),
+      },
     }
   }
   if (messageType === 8 || messageType === 77 || (messageType == null && aweType === 800)) {
     const title = String(value['content_title'] ?? '')
+    const cover = objectValue(value['cover_url'])
+    const coverUrl = cover ? stringArray(cover['url_list'])[0] ?? String(cover['uri'] ?? '') : ''
     return {
-      kind: 'share', text: text || title, aweType,
+      type: 'share', text: text || title || '[分享作品]',
       share: {
-        itemId: String(value['itemId'] ?? ''), title,
-        authorUid: String(value['uid'] ?? ''), authorSecUid: String(value['secUID'] ?? ''),
+        itemId: String(value['itemId'] ?? ''),
+        title,
+        uid: String(value['uid'] ?? ''),
+        ...(value['secUID'] ? { secUid: String(value['secUID']) } : {}),
+        ...(value['content_name'] ? { authorName: String(value['content_name']) } : {}),
+        ...(coverUrl ? { coverUrl } : {}),
       },
-      value,
     }
   }
   if (messageType === 136) {
@@ -253,14 +424,109 @@ export function parseMessageContent (content: string, messageType?: number): Par
         ...(ref?.['create_time'] ? { createTime: Number(ref['create_time']) } : {}),
       })
     }
-    return { kind: 'forward', text: '[合并转发]', aweType, nodes, value }
+    return { type: 'forward', text: '[合并转发]', nodes }
+  }
+  // 接龙（群内多人接力登记项）：push_detail 即官方展示文本，describe 为标题
+  if (messageType === 152) {
+    const items = Array.isArray(value['chains_entry_list']) ? value['chains_entry_list'] : []
+    return {
+      type: 'chains',
+      text: String(value['push_detail'] ?? value['chains_description'] ?? '[接龙]'),
+      chains: {
+        id: String(value['chains_id'] ?? ''),
+        description: String(value['chains_description'] ?? ''),
+        isStart: Number(value['is_start_chains']) === 1,
+        entries: items.map((item) => {
+          const it = item as Record<string, unknown>
+          return { uid: String(it['e_c_u'] ?? ''), text: String(it['e_t'] ?? '') }
+        }),
+      },
+    }
+  }
+  // 互动卡（messageType=110）：im_dynamic_patch 为卡片载荷，raw_data 是双层转义 JSON，
+  // description(=push_detail) 即展示文本。引导卡(aweType=110402/msg_guide)与打卡卡
+  // (110372/msg_preview) 的 raw_data 布局不同，平铺字段各取首段候选回退
+  if (messageType === 110) {
+    const patch = objectValue(value['im_dynamic_patch'])
+    const raw = typeof patch?.['raw_data'] === 'string'
+      ? objectValue(JSON.parse(patch['raw_data']))
+      : undefined
+    const pick = (...names: string[]): string => {
+      for (const name of names) {
+        const node = objectValue(raw?.[name])
+        const value = node?.['content']
+        const hit = Array.isArray(value) ? value[0] : value
+        if (typeof hit === 'string' && hit) return hit
+      }
+      return ''
+    }
+    // 打卡卡 patch.id 是嵌套 JSON 字符串 {"id":..,"sign":..}，取内层 id；引导卡用 card_id
+    let cardId = String(patch?.['card_id'] ?? '')
+    if (!cardId && typeof patch?.['id'] === 'string') {
+      const nested = objectValue(JSON.parse(patch['id']))
+      cardId = String(nested?.['id'] ?? '')
+    }
+    return {
+      type: 'card',
+      text: String(value['description'] ?? value['push_detail'] ?? ''),
+      card: {
+        key: String(patch?.['card_key'] ?? ''),
+        type: String(patch?.['card_type'] ?? ''),
+        id: cardId,
+        aweType: Number(value['aweType'] ?? 0),
+        title: pick('content_middle_top', 'content_top'),
+        desc: pick('content_middle_content', 'content_middle'),
+        button: pick('bottom', 'bottom_right'),
+        coverUrl: pick('content_left', 'content_bottom'),
+        sign: String(patch?.['sign'] ?? ''),
+        patch: patch ?? {},
+      },
+    }
+  }
+  // 位置消息（messageType=502，POI 定位）：坐标 + 地点名/地址，封面为 cover_info.resource_url
+  if (messageType === 502) {
+    const cover = objectValue(objectValue(value['cover_info'])?.['resource_url'])
+    return {
+      type: 'location',
+      text: String(value['poi_name'] ?? value['poi_address'] ?? '') || '[位置]',
+      location: {
+        name: String(value['poi_name'] ?? ''),
+        address: String(value['poi_address'] ?? ''),
+        latitude: Number(value['latitude'] ?? 0),
+        longitude: Number(value['longitude'] ?? 0),
+        poiId: String(value['poi_id'] ?? ''),
+        awemePoiId: String(value['aweme_poi_id'] ?? ''),
+        uri: String(cover?.['uri'] ?? ''),
+        urlList: stringArray(cover?.['url_list']),
+      },
+    }
+  }
+  // 群聊邀请卡（messageType=58）：aweme_invite_card 为载荷，title 即展示文本
+  if (messageType === 58) {
+    const card = objectValue(value['aweme_invite_card'])
+    const icon = objectValue(card?.['group_icon'])
+    return {
+      type: 'groupCard',
+      text: String(value['title'] ?? value['push_detail'] ?? '[群聊邀请]'),
+      groupCard: {
+        conversationId: String(card?.['conversation_id'] ?? ''),
+        groupName: String(card?.['group_name'] ?? ''),
+        iconUrl: stringArray(icon?.['url_list'])[0] ?? '',
+        ...(card?.['group_member_count'] !== undefined ? { memberCount: Number(card['group_member_count']) } : {}),
+        ...(card?.['group_owner_uid'] ? { ownerUid: String(card['group_owner_uid']) } : {}),
+        ...(card?.['sec_group_owner_uid'] ? { ownerSecUid: String(card['sec_group_owner_uid']) } : {}),
+        ...(card?.['group_owner_nickname'] ? { ownerNickname: String(card['group_owner_nickname']) } : {}),
+        fromUid: String(card?.['from_uid'] ?? ''),
+        ...(card?.['sec_from_uid'] ? { fromSecUid: String(card['sec_from_uid']) } : {}),
+      },
+    }
   }
   // 明确不支持的 wire 类型不得从通用 resource 字段猜测
   if (messageType != null && ![1, 2, 5, 7, 27, 30].includes(messageType)) {
-    return { kind: 'unknown', text, aweType, value }
+    return { type: 'unknown', text, raw: value }
   }
   const image = imageFromObject(value)
-  if (image) return { kind: 'image', text, aweType: aweType || 2702, image }
+  if (image) return { type: 'image', text: text || '[图片]', image }
 
   const videoValue = objectValue(value['video'])
   if (videoValue) {
@@ -274,15 +540,23 @@ export function parseMessageContent (content: string, messageType?: number): Par
       height: Number(value['height'] ?? 0),
       checkPics: stringArray(value['check_pics']),
       ...(poster ? { poster } : {}),
+      ...(value['inline_pic'] ? { inlinePic: String(value['inline_pic']) } : {}),
     }
-    return { kind: 'video', text, aweType, video }
+    return { type: 'video', text: text || '[视频]', video }
   }
 
   const emojiUrl = objectValue(value['url'])
   const url = String(emojiUrl?.['uri'] ?? stringArray(emojiUrl?.['url_list'])[0] ?? '')
-  if (aweType === 507 || url) return { kind: 'emoji', text, aweType: aweType || 507, url }
-  if (text || 'text' in value) return { kind: 'text', text, aweType }
-  return { kind: 'unknown', text, aweType, value }
+  if (aweType === 507 || url) return { type: 'emoji', text: text || '[表情]', emoji: url }
+  if (text || 'text' in value) {
+    const mentions = mentionsFromValue(value)
+    // 有 @ 提及时按原文位置剥离「@xxx 」；纯 @ 消息保留原文（无剥离文本）
+    if (!mentions) return { type: 'text', text }
+    const stripped = stripMentions(text, mentions)
+    const ats = mentions.sort((a, b) => a.location - b.location).map(m => ({ uid: m.uid }))
+    return { type: 'text', text: stripped || text, ats }
+  }
+  return { type: 'unknown', text, raw: value }
 }
 
 /**
@@ -331,16 +605,4 @@ export function normalizeDesktopTextMessageContent (content: string, msgType: nu
   } catch {
     return buildDesktopTextContent(content)
   }
-}
-
-/** 入站消息展示文本：解析失败时按 kind 回退占位符 */
-export function displayText (content: string, messageType: number): string {
-  const parsed = parseMessageContent(content, messageType)
-  if (parsed.text) return parsed.text
-  if (parsed.kind === 'image') return '[图片]'
-  if (parsed.kind === 'video') return '[视频]'
-  if (parsed.kind === 'emoji') return parsed.text || '[表情]'
-  if (parsed.kind === 'audio') return '[语音]'
-  if (parsed.kind === 'share') return '[分享作品]'
-  return content
 }

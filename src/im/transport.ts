@@ -1,14 +1,12 @@
 import os from 'node:os'
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import {
-  AndroidFrontierWs, decodeWire, encodeRequest, decodeResponseRaw,
+  AndroidFrontierWs, encodeRequest, decodeResponseRaw,
   ANDROID_SDK_VERSION, ANDROID_UA, fieldBytes, fieldStringValue, fieldVarint, kv,
 } from './protocol/index.js'
-import { collectKeyValues, messageChildren } from './notice.js'
 import { frontierSign, WS_SIGN_CMDS } from '../sign/index.js'
 import type { Http } from '../http/client.js'
 import type { Log } from '../log.js'
-import type { WireField } from './protocol/index.js'
 
 /** 官方 PC 客户端 UA（媒体上传与 Cookie 通道共用） */
 export const PC_UA =
@@ -121,28 +119,22 @@ export class ProtoTransport {
     if (!res.ok) {
       throw new Error(`IM Cookie HTTP ${res.status} ${endpoint}: ${Buffer.from(res.data).toString('utf8', 0, 200)}`)
     }
+    let decoded: Record<string, unknown>
     try {
-      const decoded = decodeResponseRaw(res.data)
-      const statusCode = Number(decoded['statusCode'] ?? 0)
-      if (statusCode !== 0) {
-        this.log.warn(`cmd=${cmd} ${endpoint} 失败: statusCode=${statusCode} errorDesc=${String(decoded['errorDesc'] ?? '')}`)
-      }
-      return decoded
+      decoded = decodeResponseRaw(res.data)
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
       throw new Error(`IM Cookie response decode failed cmd=${cmd} ${endpoint}: ${detail}`)
     }
+    const statusCode = Number(decoded['statusCode'] ?? 0)
+    if (statusCode !== 0) {
+      this.log.warn(`cmd=${cmd} ${endpoint} 失败: statusCode=${statusCode} errorDesc=${String(decoded['errorDesc'] ?? '')}`)
+    }
+    return decoded
   }
 }
 
-/* ---------------------------------------------------------------------------
- * Android Frontier WS cmd=100 直发（绕 HTTP imapi 群聊 7523 风控；帧结构逆自安卓端）
- * 三层：外层 frontier f1 seq f2 ts f3 5 f4 1 f5 KV f6/f7 "pb" f8=inner
- *      内层 cmd100 f1 100 f2 seq f3 sdkver f7 build f8=msgWrapper f9 uid f11 "android" f15 KV f21/f22 biz/access
- *      msgWrapper f100 = field100{ f1 conv_id f2 conv_type f3 short f4 content f5 ext f6 msg_type f8 cmid f12 ext12 }
- * ------------------------------------------------------------------------- */
-
-/** 安卓端常量（WS 通道 cmd100 envelope 用；握手常量见 protocol/ws.ts） */
+/** 安卓端常量（WS 通道 cmd411 envelope 用；握手常量见 protocol/ws.ts） */
 const android = {
   aid: '1128',
   versionCode: '280400',
@@ -155,44 +147,7 @@ const android = {
   access: 'douyin_main',
 } as const
 
-/** ch1(douyin_main) 的 msgWrapper f5 ext KV（含时间戳，逆自安卓端 buildSendMessage case 1） */
-function sendExt (ms: number): [string, string][] {
-  return [
-    ['s:ticket_mode', '0'],
-    ['im_client_send_msg_time', String(ms - 500)],
-    ['a:plv', '1'],
-    ['a:access', android.access],
-    ['s:biz_aid', android.aid],
-    ['chat_scene', 'normal'],
-    ['a:msg_scene', '1'],
-    ['im_sdk_client_send_msg_time', String(ms - 375)],
-    ['a:relation_type', '0:0'],
-    ['a:smp_token_fetch', '11'],
-    ['a:ntp_ready', '2'],
-    ['s:sync_2_newdx', '1'],
-    ['old_client_message_id', String(ms)],
-    ['s:mode', '0'],
-    ['a:enter_method', 'click_message'],
-    ['a:biz', android.biz],
-    ['s:is_stranger', 'false'],
-    ['source_aid', android.aid],
-    ['s:saas_sdk', 'false'],
-    ['a:sync2dx', '1'],
-    ['s:refer', '3'],
-  ]
-}
-
-/** msgWrapper f12 ext KV（s:send_ignore_ticket=true 免会话 ticket；proto schema 无 field 12，必须裸编码） */
-const sendExt12: [string, string][] = [
-  ['s:reverse_creator_im_ex', '0'],
-  ['a:from_role_ids', ''],
-  ['s:im_creator_chat_opt_exp', '0'],
-  ['s:send_ignore_ticket', 'true'],
-  ['s:im_chat_priv_opt_exp', '1'],
-  ['a:to_role_ids', '[]'],
-]
-
-/** cmd100 内层 envelope f15 headers KV（设备身份载体） */
+/** cmd411 内层 envelope f15 headers KV（设备身份载体） */
 function androidHeaders (uid: string): [string, string][] {
   return [
     ['app_name', android.appName], ['iid', uid], ['version_code', android.versionCode],
@@ -202,43 +157,37 @@ function androidHeaders (uid: string): [string, string][] {
 
 let sendSeq = 0
 
-export interface Cmd100FrameOptions {
-  /** 账号 uid（envelope device_id 与 WS 握手共用） */
+export interface Cmd411FrameOptions {
+  /** 账号 uid（作 envelope device_id） */
   userId: string
   conversationId: string
   conversationShortId: string
-  /** 已按安卓 ch1 形状包装好的消息 content JSON */
-  content: string
   conversationType: number
-  messageType: number
+  /** true=正在输入(3)，false=清除输入(4) */
+  typing: boolean
 }
 
-/** 组一条 WS cmd=100 发送帧，返回帧字节与 clientMessageId（回执匹配键） */
-export function buildCmd100Frame (options: Cmd100FrameOptions): { frame: Uint8Array; clientMessageId: string } {
+/** 组一条 WS cmd=411 输入状态帧：f1=411、f8=SendInputStatusRequest（三层结构与 Android Frontier WS 帧一致） */
+export function buildCmd411Frame (options: Cmd411FrameOptions): Uint8Array {
   const seq = ++sendSeq
   const ms = Date.now()
-  const clientMessageId = randomUUID()
 
-  let field100 = Buffer.concat([
+  const body = Buffer.concat([
     fieldStringValue(1, options.conversationId),
     fieldVarint(2, options.conversationType),
     fieldVarint(3, BigInt(options.conversationShortId || '0')),
-    fieldStringValue(4, options.content),
+    // InputStatus 枚举：3 正在输入 / 4 清除输入（与接收侧 input_status=1/0 不同）
+    fieldVarint(4, options.typing ? 3 : 4),
   ])
-  for (const [key, value] of sendExt(ms)) field100 = Buffer.concat([field100, kv(5, key, value)])
-  field100 = Buffer.concat([field100, fieldVarint(6, options.messageType)])
-  // f7 ticket 服务端按会话下发；多数会话不需要，首发不携带
-  field100 = Buffer.concat([field100, fieldStringValue(8, clientMessageId)])
-  for (const [key, value] of sendExt12) field100 = Buffer.concat([field100, kv(12, key, value)])
 
   let inner = Buffer.concat([
-    fieldVarint(1, 100),
+    fieldVarint(1, 411),
     fieldVarint(2, seq),
     fieldStringValue(3, ANDROID_SDK_VERSION),
     fieldVarint(5, 1),
     fieldVarint(6, 0),
     fieldStringValue(7, android.buildNumber),
-    fieldBytes(8, field100),
+    fieldBytes(8, body),
     fieldStringValue(9, options.userId),
     fieldStringValue(10, android.channel),
     fieldStringValue(11, 'android'),
@@ -261,10 +210,9 @@ export function buildCmd100Frame (options: Cmd100FrameOptions): { frame: Uint8Ar
     fieldVarint(4, 1),
   ])
   const headers: [string, string][] = [
-    ['msg_type', 'cmd100'], ['seq_id', String(seq)], ['cmd', '100'], ['is-retry', '0'], ['flow-tag', 'new'],
+    ['msg_type', 'cmd411'], ['seq_id', String(seq)], ['cmd', '411'], ['is-retry', '0'], ['flow-tag', 'new'],
   ]
-  // 需签名命令把 frontierSign 结果追加进外层 f5 头
-  if (WS_SIGN_CMDS.has(100)) {
+  if (WS_SIGN_CMDS.has(411)) {
     for (const sign of frontierSign(inner, { userAgent: ANDROID_UA })) {
       headers.push([sign.key, sign.value])
     }
@@ -276,56 +224,21 @@ export function buildCmd100Frame (options: Cmd100FrameOptions): { frame: Uint8Ar
     fieldStringValue(7, 'pb'),
     fieldBytes(8, inner),
   ])
-  return { frame, clientMessageId }
+  return frame
 }
 
-export interface SendAck {
-  serverMessageId?: string
-  blocked?: boolean
-  reason?: string
-}
-
-/** 回执命中状态码（8101/8610/10502 均视为风控拦截） */
-const BLOCKED_CALLBACK = new Set(['8101', '8610', '10502'])
-
-function varint (fields: WireField[], field: number): string | undefined {
-  const hit = fields.find(item => item.type === 'varint' && item.field === field)?.value
-  return hit !== undefined ? hit.toString() : undefined
-}
-
-/** 回执匹配：.8.6.500.5[*] f9 KV[s:client_message_id] 命中 → f3=server_msg_id；风控看 shark/callback */
-export function matchSendAck (payload: Uint8Array, wantCmid: string): SendAck | undefined {
-  for (const f8 of messageChildren(decodeWire(payload), 8)) {
-    for (const f6 of messageChildren(f8, 6)) {
-      for (const f500 of messageChildren(f6, 500)) {
-        for (const msg of messageChildren(f500, 5)) {
-          const values = collectKeyValues(msg, 9)
-          if (values.get('s:client_message_id') !== wantCmid) continue
-          const sid = varint(msg, 3)
-          const shark = values.get('s:vcd_shark_decision')
-          const callback = values.get('im_callback_status_code')
-          const blocked = shark === 'BLOCK' || (callback != null && BLOCKED_CALLBACK.has(callback))
-          return {
-            ...(sid && sid !== '0' ? { serverMessageId: sid } : {}),
-            ...(blocked ? { blocked: true, reason: shark === 'BLOCK' ? 'shark=BLOCK' : `callback=${callback ?? ''}` } : {}),
-          }
-        }
-      }
-    }
-  }
-  return undefined
-}
-
-export interface Cmd100SendOptions extends Cmd100FrameOptions {
+export interface Cmd411SendOptions extends Cmd411FrameOptions {
   /** 浏览器 Cookie 串（WS 握手鉴权） */
   cookies: string
 }
 
-/** 一次性连接发送 cmd=100 帧并等回执；undefined 表示超时/连接失败/被静默拦截 */
-export async function sendCmd100 (options: Cmd100SendOptions): Promise<SendAck | undefined> {
-  const { frame, clientMessageId } = buildCmd100Frame(options)
+/** 一次性连接发送 cmd=411 输入状态帧（无确认回执，发完即关）；true=已发出 */
+export async function sendCmd411 (options: Cmd411SendOptions): Promise<boolean> {
+  const frame = buildCmd411Frame(options)
   const ws = new AndroidFrontierWs({ userId: options.userId, cookies: options.cookies })
-  const ack = await ws.sendOnce(frame, payload => matchSendAck(payload, clientMessageId))
+  const ok = await ws.sendFireOnce(frame)
   ws.close()
-  return ack
+  return ok
 }
+
+

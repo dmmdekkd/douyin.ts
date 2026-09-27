@@ -73,6 +73,16 @@ message RequestPayload {
   GetFriendReceiveApplyListRequest get_friend_receive_apply_list = 20481;
   ReplyFriendApplyRequest reply_friend_apply = 2049;
   GetRecentStrangerMessageReqBody get_recent_stranger_message = 2047;
+  CreateVoipRequestBody create_voip = 2011;
+  CallVoipRequestBody call_voip = 2012;
+  // 以下对齐 native 客户端一并支持的查询/回执类接口：
+  // stranger get_conversation_list 外层 cmd=1001、body oneof 独立占 tag=1000
+  StrangerConversationListRequest stranger_conversation_list = 1000;
+  GetReadIndexRequest get_read_index = 2000;
+  GetMinIndexRequest get_min_index = 2001;
+  ClientAckRequest client_ack = 2010;
+  GetUserMessageRequest get_user_message = 2048;
+  GetConversationParticipantsReadIndexRequest get_conversation_participants_read_index = 2038;
 }
 
 message GetConversationInfoV2Request {
@@ -107,6 +117,59 @@ message SendInputStatusRequest {
   int64 conversation_short_id = 3;
   int32 status = 4;
   map<string, string> extra = 5;
+}
+
+message CreateVoipRequestBody {
+  string idempotent_id = 1;
+  // VoipType：1=ALL 2=VIDEOONLY 3=AUDIOONLY
+  int32 v_type = 2;
+  int64 con_short_id = 3;
+  int64 srv_msg_id = 4;
+  string ref_channel_id = 5;
+  // VoipMode：0=DOUBLE 1=MULTIPLAYER
+  int32 voip_mode = 6;
+}
+
+message CreateVoipResponseBody {
+  VoipInfo info = 1;
+  // VoipStatusCode：0=SUCCESS 4=PARAMS_ERROR 18=STATUS_ERROR ...
+  int32 status_code = 2;
+  int32 voip_mode = 3;
+}
+
+message CallVoipRequestBody {
+  repeated int64 callee_ids = 1;
+  string channel_id = 2;
+  int32 v_type = 3;
+  map<string, string> ext = 4;
+  repeated int64 ref_channel_users = 5;
+  string con_id = 6;
+}
+
+message CallVoipResponseBody {
+  VoipInfo info = 1;
+  repeated int64 callee_ids = 2;
+  int32 status = 3;
+  string extra_info = 4;
+  int64 check_code = 5;
+  string check_message = 6;
+  string ref_channel_id = 7;
+  int32 voip_mode = 8;
+}
+
+message VoipInfo {
+  int64 user_id = 1;
+  string device_id = 2;
+  string channel_id = 3;
+  string token = 4;
+  // VoipStatus：1=CALLING 2=RINGING 3=ACCEPTED 4=ONTHECALL 101+=结束态
+  int32 status = 5;
+  int64 caller_id = 6;
+  int64 created_time_ms = 7;
+  int64 updated_time_ms = 8;
+  int64 con_short_id = 9;
+  int32 v_type = 10;
+  int64 srv_msg_id = 11;
 }
 
 message DissolveConversationRequest {
@@ -158,6 +221,7 @@ message CreateConversationV2Request {
   string avatar_url = 7;
   string description = 8;
   map<string, string> biz_ext = 11;
+  map<string, string> ext = 13;
 }
 
 message ConversationAddress {
@@ -305,6 +369,10 @@ message SendMessageRequest {
   string ticket = 7;
   string client_message_id = 8;
   repeated int64 mentioned_users = 9;
+  // field 10：盖楼归属候选落点（type=50 三元组唯一空缺）；
+  // 实测差分：int64(wire0) 与缺省同为 status=4（wire0 被忽略）；string(wire2) 首段纯数字为 -1（值被拒）→
+  // 真实类型是 string，值应为 thread_id 全串（服务器唯一见过的 thread 标识：落地帧 f500.f2 / emoticon conv_id）
+  string thread_id = 10;
   ReferencedMessageInfo ref_msg_info = 11;
 }
 
@@ -383,6 +451,15 @@ message ResponsePayload {
   GetFriendReceiveApplyListResponse get_friend_receive_apply_list = 20481;
   EmptyActionResponse reply_friend_apply = 2049;
   GetRecentStrangerMessageRespBody get_recent_stranger_message = 2047;
+  // stranger_list 实测服务端限流返回空 body，留空响应承接
+  EmptyActionResponse stranger_conversation_list = 1000;
+  GetReadIndexResponse get_read_index = 2000;
+  GetMinIndexResponse get_min_index = 2001;
+  GetUserMessageResponse get_user_message = 2048;
+  // delete/leave/readIndex 服务端返回空 body，留空响应承接
+  EmptyActionResponse delete_conversation = 603;
+  EmptyActionResponse leave_conversation = 652;
+  EmptyActionResponse get_conversation_participants_read_index = 2038;
 }
 
 message GetRecentStrangerMessageReqBody {
@@ -448,9 +525,8 @@ message NewFriendMessageNotify {
 }
 
 message CreateConversationV2Response {
-  ConversationV2 conversation = 1;
   int64 check_code = 2;
-  string check_message = 3;
+  ConversationV2 conversation = 3;
   string extra_info = 4;
   int32 status = 5;
 }
@@ -546,6 +622,7 @@ message SetConversationCoreInfoResponse {
 }
 
 message SetConversationSettingInfoResponse {
+  ConversationSettingInfo conversation_setting_info = 1;
   int32 status = 2;
   int64 check_code = 3;
   string check_message = 4;
@@ -728,6 +805,99 @@ message ConversationMessage {
   int64 order_in_conversation = 13;
   string sec_sender = 14;
   int64 index_in_conversation_v2 = 17;
+}
+
+// cmd=1001 stranger/get_conversation_list —— 陌生人会话列表，body oneof 占 tag=1000。
+// HAR 实测被网关限流（statusCode=409 空 body），schema 按请求方向还原；
+// 游标/来源/场景三字段语义为推测。
+message StrangerConversationListRequest {
+  int64 cursor = 1;
+  int32 source = 2;
+  int32 scene = 3;
+}
+
+// cmd=2000 conversation/get_read_index —— 按会话批量查各成员已读游标（微秒时间戳量级）
+message GetReadIndexRequest {
+  int64 conversation_short_id = 1;
+  int32 conversation_type = 2;
+  string conversation_id = 3;
+}
+
+message ReadIndexItem {
+  int64 uid = 1;
+  int64 read_index = 3;
+  // 附加计数（如已读消息条数），语义推测
+  int64 extra = 4;
+}
+
+message GetReadIndexResponse {
+  repeated ReadIndexItem read_index_list = 1;
+}
+
+// cmd=2001 conversation/get_min_index —— 按会话批量查最小同步游标（与 get_read_index 同形）
+message GetMinIndexRequest {
+  int64 conversation_short_id = 1;
+  int32 conversation_type = 2;
+  string conversation_id = 3;
+}
+
+// cmd=2038 conversation/batch_get_conversation_participants_readindex —— 批量查询所有成员已读游标
+message GetConversationParticipantsReadIndexRequest {
+  string conversation_id = 1;
+  int64 conversation_short_id = 2;
+  int32 get_user_read_index = 4;
+}
+
+message MinIndexItem {
+  int64 uid = 1;
+  int64 min_index = 3;
+}
+
+message GetMinIndexResponse {
+  repeated MinIndexItem min_index_list = 1;
+}
+
+// cmd=2010 client/ack —— 客户端消息回执（type=500 到达/已读确认）。
+// HAR 响应仅 envelope 成功帧，无 payload body。
+message ClientAckRequest {
+  int64 server_message_id = 1;
+  int32 message_type = 2;
+  int32 status = 3;
+  // 附加消息体原样透传（native 里携带会话诊断信息，结构不固定用 bytes 承接）
+  bytes extra = 4;
+  int64 client_message_id = 5;
+  int64 conversation_short_id = 6;
+  int32 count = 7;
+}
+
+// cmd=2048 message/get_user_message —— 按 uid 区间拉消息游标/统计。
+// HAR 响应字段全 0，语义不完整，字段名按位置推测。
+message GetUserMessageRequest {
+  int64 start_index = 1;
+  int64 message_type = 2;
+  int64 end_index = 4;
+  string cursor = 5;
+}
+
+message UserMessageItem {
+  int64 f1 = 1;
+  int64 f3 = 3;
+  message UserMessageItemExt {
+    int64 f1 = 1;
+    int64 f2 = 2;
+  }
+  UserMessageItemExt ext = 4;
+}
+
+message UserMessageCount {
+  int64 f2 = 2;
+  int64 f3 = 3;
+}
+
+message GetUserMessageResponse {
+  repeated UserMessageItem messages = 1;
+  UserMessageCount count = 2;
+  UserMessageCount total = 4;
 }
 `
 

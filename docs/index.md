@@ -3,8 +3,8 @@ layout: home
 
 hero:
   name: douyin.ts
-  text: 抖音 IM 开发 SDK
-  tagline: TypeScript 7 · 纯 ESM · 零框架依赖
+  text: 抖音 IM 机器人 SDK
+  tagline: 用 TypeScript 收发抖音私信与群聊 · 事件驱动 · 纯 ESM · 零框架依赖
   actions:
     - theme: brand
       text: 快速开始
@@ -14,12 +14,12 @@ hero:
       link: /api/msg
 
 features:
-  - title: 扫码登录
-    details: QR 串渲染权归调用方；本地安全验证、短信/密码二次验证通过回调交付，session 自行保存
-  - title: 收发双通道
-    details: 收消息走 Android Frontier WS 推送，发消息统一 HTTP cookie 通道，HTTP 同时承担收件箱查询与媒体上传
-  - title: 统一 API
-    details: bot.域.动作 两级结构（msg / media / frd / grp / chat / user），chatId 不透明串贯穿，事件统一 bot.on
-  - title: 会话不持久化
-    details: SDK 不落盘任何东西，Cookie 与设备信息由调用方存储，便于嵌入你自己的账号体系
+  - title: 消息收发
+    details: bot.msg 统一发送，文本 / 图片 / 视频 / 文件 / 卡片，引用回复、撤回、已读全覆盖
+  - title: 群管理
+    details: bot.grp 群列表 / 成员 / 入群审批 / 改名 / 拉人移出 / 建群
+  - title: 好友管理
+    details: bot.frd 好友列表 / 申请审批，bot.chat 历史消息 / 已读游标 / 会话设置
+  - title: 媒体能力
+    details: bot.media 图片 / 视频 / 文件上传，表情资源、作品详情与播放地址一键取用
 ---

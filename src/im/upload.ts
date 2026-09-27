@@ -1,8 +1,7 @@
 import { createHash, createHmac, randomBytes } from 'node:crypto'
 import { PC_UA, fingerprintParams } from './transport.js'
-import { sniffImageFormat, type ImageFormat } from './media.js'
+import { sniffImageFormat, type ImageFormat, type ImageAsset, type VideoAsset } from './media.js'
 import type { Http } from '../http/client.js'
-import type { ImageAsset } from './content.js'
 
 const UPLOAD_CONFIG_URL = 'https://www.douyin.com/aweme/v1/web/im/upload/config/v2'
 const VOD_URL = 'https://vod.bytedanceapi.com/'
@@ -15,12 +14,6 @@ export interface UploadCredentials {
   secretAccessKey: string
   sessionToken: string
   spaceName: string
-}
-
-export interface VideoAsset {
-  tkey: string
-  skey: string
-  md5: string
 }
 
 export interface VodSignature {
