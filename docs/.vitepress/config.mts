@@ -104,7 +104,7 @@ const themeConfig = {
   docFooter: { prev: '上一篇', next: '下一篇' },
   lastUpdated: { text: '最后更新' },
   // 当前文档对应的 SDK 版本，GitHub 最新 Release 高于它时弹新版本公告
-  currentVersion: '0.1.0',
+  currentVersion: '0.2.0',
 }
 
 export default defineConfig({
