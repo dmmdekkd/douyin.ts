@@ -38,12 +38,16 @@ export interface StickerCollectResult {
   ids: string[]
 }
 
-/** 表情面板场景：我的收藏页（HAR 中唯一确认值；其他面板场景可自行传参探测） */
+/** 表情面板场景：我的收藏页；注意 aggregation 无浏览器签名会被服务端 blocked（emoticon/trending 才是登录态可用源） */
 export const SCENES_FAVS = 'CUSTOM_STICKER_PAGE'
 
 const ORIGIN = 'https://www.douyin.com'
 
-/** 表情资源列表：/aweme/v1/web/im/resource/list/aggregation/，scenes 决定返回哪套贴纸（缺省我的收藏） */
+/**
+ * 表情资源列表：/aweme/v1/web/im/resource/list/aggregation/，scenes 决定返回哪套贴纸。
+ * 对应官方面板「收藏」「GIF」分区（浏览器实测收藏资源域 im-emoticon、s=im_123；GIF 为 s=im_124）。
+ * 仅浏览器环境可用：无 a_bogus 签名时服务端返回文本 blocked（非 JSON），SDK 环境优先用 emojiTrending
+ */
 export async function stickerList (
   http: Http,
   options: { scenes?: string; cursor?: number; limit?: number } = {},
@@ -102,7 +106,10 @@ export async function stickerCollect (
   return { ids: (res.data.success_items ?? []).map(s => s.id_str ?? String(s.id ?? '')) }
 }
 
-/** emoticon/trending:热门表情分页（cursor+count 翻页，groupId 固定 1） */
+/**
+ * emoticon/trending:热门表情分页（cursor+count 翻页，groupId 固定 1）。
+ * 对应官方面板「贴纸」分区（官方互动贴纸，im-resource 域 s=im_111/im_2），是 lite_emoji 表情消息的推荐数据源
+ */
 export async function emojiTrending (
   http: Http,
   options: { cursor?: number; count?: number } = {},
@@ -125,6 +132,28 @@ export async function emojiTrending (
     cursor: Number(data?.next_cursor ?? 0),
     done: data?.has_more !== true,
   }
+}
+
+/** trending 短缓存：签名链接有效期极长（至 2027），缓存只为省去每次发表情都拉列表 */
+const TRENDING_TTL = 300_000
+let trendingCache: { at: number; page: StickerPage } | undefined
+
+/**
+ * 表情消息 URL 归一化：完整 URL 原样返回；否则视为 im-resource 资源 id，
+ * 经 trending 匹配出带签名的 CDN 直链（签名时效长，缓存放大到 5 分钟）；列表未收录时退回无签名直链
+ */
+export async function stickerUrlOf (http: Http, emoji: string): Promise<string> {
+  if (/^https?:\/\//.test(emoji)) return emoji
+  if (!trendingCache || Date.now() - trendingCache.at > TRENDING_TTL) {
+    const page = await emojiTrending(http)
+    trendingCache = { at: Date.now(), page }
+  }
+  for (const s of trendingCache.page.list) {
+    const img = s.static ?? s.animate
+    if (!img) continue
+    if (img.uri.includes(emoji) || img.urls.some(u => u.includes(emoji))) return img.urls[0] ?? img.uri
+  }
+  return `https://p3-sign.douyinpic.com/obj/im-resource/${emoji}`
 }
 
 /** strategy/config:app 能力开关结果（决策树 + 动效资源包配置） */

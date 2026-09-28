@@ -144,7 +144,7 @@ export interface SendBodyOptions {
 /** 消息表情回应（cmd=705 set_property，key=se:<emoji>） */
 export interface ModifyReactionItem extends ConversationAddress {
   serverMessageId: string
-  /** 抖音表态键值（skey 文本表情，如 '[爱心]'） */
+  /** 抖音表态键值（skey 文本表情，如 '[爱心]'）或小表情 id（如 weixiao，自动解析为键值） */
   emoji: string
   /** 表态者 uid（bot 自身） */
   operatorUid: string
@@ -654,6 +654,7 @@ type RawBody<S extends 'send' | 'recv'> =
   | { type: 'userCard'; text?: string; user: UserCard }
   | { type: 'forward'; text?: string; nodes: ForwardNode[] }
   | { type: 'audio'; text?: string; audio: { urls: string[]; uri: string } }
+  // emoji 传小表情 id（如 weixiao，按官方键值文本发送）/ im-resource 资源 id（经 trending 解析签名直链发 lite_emoji）/ 完整 CDN 直链
   | { type: 'emoji'; text?: string; emoji: string }
   | { type: 'link'; text?: string; link: LinkCard }
   | { type: 'chains'; text?: string; chains: Chains }

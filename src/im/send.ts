@@ -10,11 +10,14 @@ import {
   buildShareContent,
   buildUserCardContent,
   buildCardContent,
+  buildEmojiContent,
   buildLocationContent,
   buildGroupCardContent,
   normalizeDesktopTextMessageContent,
 } from './content.js'
 import { sendCmd411 } from './transport.js'
+import { stickerUrlOf } from './resource.js'
+import { emojiTextOf } from './emoji.js'
 import type { ProtoTransport } from './transport.js'
 import type { Log } from '../log.js'
 import type { Http } from '../http/client.js'
@@ -205,6 +208,19 @@ export async function sendBody (
       return sendUserCard(ctx, { ...address, user: body.user, clientMessageId: opts?.clientMessageId })
     case 'forward':
       return sendMergeForward(ctx, { ...address, nodes: body.nodes, selfUid: ctx.userId, clientMessageId: opts?.clientMessageId })
+    case 'emoji': {
+      // 小表情 id（如 weixiao）按官方形态以键值文本发送（tos-cn 域发 lite_emoji 会被 s:visible 仅自身可见）
+      const text = await emojiTextOf(ctx.http, body.emoji)
+      if (text) return send(ctx, { ...address, content: text, messageType: 7, clientMessageId: opts?.clientMessageId })
+      // 表情消息（lite_emoji / messageType=5，HAR 权威样本：url 为完整 CDN 直链，display_name 为表情名）
+      // emoji 传完整 URL 或 im-resource 资源 id（id 经 trending 缓存解析为签名直链）
+      return send(ctx, {
+        ...address,
+        content: buildEmojiContent(await stickerUrlOf(ctx.http, body.emoji), body.text),
+        messageType: 5,
+        clientMessageId: opts?.clientMessageId,
+      })
+    }
     case 'card':
       // 互动卡原样回传：patch 复用收侧载荷（含官方签名），description/push_detail 取展示文本
       return send(ctx, {

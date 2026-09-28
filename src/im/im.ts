@@ -270,9 +270,10 @@ export class Im {
     return inbox.recall(this.inboxCtx, item)
   }
 
-  /** 消息表情回应（cmd=705 set_property，emoji 为抖音 skey 文本键） */
-  modifyReaction (item: ModifyReactionItem): Promise<{ statusCode: number; statusMsg: string }> {
-    return inbox.modifyReaction(this.inboxCtx, item)
+  /** 消息表情回应（cmd=705 set_property，emoji 为抖音 skey 文本键；传小表情 id 自动解析为键值） */
+  async modifyReaction (item: ModifyReactionItem): Promise<{ statusCode: number; statusMsg: string }> {
+    const skey = (await emoji.emojiTextOf(this.http, item.emoji)) ?? item.emoji
+    return inbox.modifyReaction(this.inboxCtx, { ...item, emoji: skey })
   }
 
   /** 会话标记已读（cmd=2002 mark_conversation_read） */

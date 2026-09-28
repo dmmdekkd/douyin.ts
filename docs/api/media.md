@@ -41,7 +41,11 @@ await bot.msg.send(chatId, { type: 'file', file: f })
 
 ## 表情资源
 
-`bot.media.emojiList()` — 官方表情资源全量映射（214 项）。`name` 即表情消息文本与 `react` 的键值，`urls` 为带签名时效的 CDN 直链。
+`bot.media.emojiList()` — 表态/评论键值映射源（214 项）。`name` 即表情消息文本与 `react` 的键值，`urls` 为带签名时效的 CDN 直链。
+
+::: warning 仅表态/评论适用
+此为 `tos-cn-*` 表态域资源，**不能用于发送表情消息**：服务端会把此类消息标记 `s:visible=<发送者uid>` 导致仅发送者可见。发送表情消息请用 `bot.sticker.trending()/list()`（IM 面板源）。
+:::
 
 ```ts
 const emojis = await bot.media.emojiList()

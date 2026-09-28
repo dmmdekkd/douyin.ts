@@ -174,7 +174,7 @@ class Msg {
     return this.bot.im().recall(item)
   }
 
-  /** 表情回应：emoji 为抖音键值（如 '[爱心]'），isSet false 取消 */
+  /** 表情回应：emoji 传抖音键值（如 '[爱心]'）或小表情 id（如 weixiao），isSet false 取消 */
   react (chatId: string, serverMessageId: string, emoji: string, isSet = true): ReturnType<Im['modifyReaction']> {
     return this.bot.im().modifyReaction({
       ...toAddress(chatId),

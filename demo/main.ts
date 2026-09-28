@@ -214,7 +214,7 @@ log.info(`bot 已启动 uid=${bot.id}，Ctrl+C 退出`)
 // 冒烟：拉好友/群列表验证 HTTP 通道
 const [frds, grps] = [await bot.frd.list(), await bot.grp.list()]
 log.info(`好友 ${frds.length} 个，群 ${grps.length} 个`)
-log.info('命令: ping /echo x /at /atall /img /video /videop /vurl /vdl /file /reply /replyall /replyat /react /recall /edit /forward /read /share [itemId] /user /checkin /locate /typing on|off /call /thread')
+log.info('命令: ping /echo x /at /atall /img /video /videop /vurl /vdl /file /emoji /reply /replyall /replyat /react /recall /edit /forward /read /share [itemId] /user /checkin /locate /typing on|off /call /thread')
 
 const friend = frds[0]
 if (friend) log.info(`示例 chatId: ${friend.chatId}`)
@@ -280,6 +280,21 @@ async function cmd (msg: BotMessage): Promise<void> {
     await bot.msg.send(msg.chatId, textMsg(`已解密 ${mp4.length} 字节，见 demo/video.mp4`))
   } else if (text === '/file') {
     await bot.msg.send(msg.chatId, { type: 'file', file: { source: Buffer.from('douyin.ts 文件消息测试'), name: 'test.txt' } })
+  } else if (text === '/emoji') {
+    // 表情消息必须用 IM 面板源：list/aggregation 无浏览器签名会被服务端 blocked（返回文本非 JSON），trending 是登录态可用的表情源
+    const page = await bot.sticker.trending()
+    const e = page.list[0]
+    if (!e) {
+      await bot.msg.send(msg.chatId, textMsg('表情源不可用'))
+      return
+    }
+    const img = e.static ?? e.animate
+    const url = img?.urls[0] ?? img?.uri ?? ''
+    if (!url) {
+      await bot.msg.send(msg.chatId, textMsg('表情缺少图片地址'))
+      return
+    }
+    await bot.msg.send(msg.chatId, { type: 'emoji', emoji: url, text: e.name ?? '[表情]' })
   } else if (text === '/reply') {
     await bot.msg.reply(msg.chatId, msg, '引用回复测试')
   } else if (text === '/replyall') {

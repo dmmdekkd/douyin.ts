@@ -212,6 +212,26 @@ export function buildCardContent (card: Card, title: string): string {
   })
 }
 
+/** 构造表情消息 content（messageType=5 / lite_emoji）：字段与官方发送样本逐一同形（含 aweType:507、url.width:0）；url 必须传 im-resource 域直链，tos-cn 表态域会被服务端注入 s:visible 导致仅自身可见 */
+export function buildEmojiContent (url: string, displayName = '[表情]'): string {
+  return JSON.stringify({
+    display_name: displayName,
+    height: 100,
+    width: 100,
+    image_id: 0,
+    image_type: 'png',
+    package_id: 0,
+    show_notice: false,
+    resource_type: 4,
+    updateConversationTime: true,
+    url: { height: 0, data_size: 0, uri: url, url_list: [url], width: 0 },
+    createdAt: 0,
+    is_card: false,
+    msgHint: '',
+    aweType: 507,
+  })
+}
+
 /** 构造位置消息 content（messageType=502 POI 定位）：字段与官方接收样例同形，封面用 cover_info.resource_url */
 export function buildLocationContent (location: LocationCard): string {
   return JSON.stringify({

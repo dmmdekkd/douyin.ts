@@ -146,10 +146,11 @@ await bot.msg.edit(chatId, sent.clientMessageId!, { type: 'text', text: '新文�
 
 ## 表情回应
 
-`bot.msg.react(chatId, serverMessageId, emoji, isSet?)` — 消息表情回应。`emoji` 为抖音键值（如 `'[爱心]'`）；`isSet` 传 `false` 取消。
+`bot.msg.react(chatId, serverMessageId, emoji, isSet?)` — 消息表情回应。`emoji` 传抖音键值（如 `'[爱心]'`）或小表情 id（如 `weixiao`，自动解析为键值）；`isSet` 传 `false` 取消。
 
 ```ts
 await bot.msg.react(chatId, msg.serverMessageId!, '[爱心]')
+await bot.msg.react(chatId, msg.serverMessageId!, 'weixiao')
 ```
 
 ### 参数
@@ -158,7 +159,7 @@ await bot.msg.react(chatId, msg.serverMessageId!, '[爱心]')
 |------|------|----------|------|
 | chatId | string | - | 会话标识 |
 | serverMessageId | string | - | 消息 id |
-| emoji | string | `[爱心]` 等 | 抖音表情键值 |
+| emoji | string | `[爱心]` `weixiao` 等 | 抖音表情键值或小表情 id |
 | isSet | boolean | `true` `false` | 缺省 true 设置，false 取消 |
 
 ## 标记已读
@@ -219,6 +220,25 @@ await bot.msg.send(chatId, { type: 'userCard', user: msg.user })
 | followerCount | string | - | 粉丝数（字符串） |
 | coverItems | string[] | - | 名片展示的作品 itemId 列表 |
 | coverUrls | string[] | - | 上述作品的封面 URL 列表，与 coverItems 一一对应 |
+
+## 表情消息
+
+`bot.msg.send(chatId, { type: 'emoji', emoji, text? })` — `emoji` 三形态自动识别，id 对照见 [sticker 的 ID 对照表](/api/sticker#id-对照表-贴纸分区)：
+
+| emoji 传参 | 发送形态 |
+|------------|----------|
+| 小表情 id（如 `weixiao`） | 键值文本 `[微笑]`（messageType=7，官方小表情即文本形态） |
+| `im-resource` 资源 id | lite_emoji（messageType=5，自动解析签名直链） |
+| 完整 CDN 直链 | lite_emoji 原样发送 |
+
+```ts
+await bot.msg.send(chatId, { type: 'emoji', emoji: 'weixiao' })
+await bot.msg.send(chatId, { type: 'emoji', emoji: '1687263281313-ts-e7bbade781abe88ab12e706e67', text: '续火花' })
+```
+
+::: warning
+lite_emoji 直链必须来自 `im-resource`/`im-emoticon` 域（`bot.sticker.trending()`）；`bot.media.emojiList()` 的 tos-cn 域 URL 会被服务端标记 `s:visible` 仅发送者可见。`text` 为贴纸名（display_name，缺省 `[表情]`）。
+:::
 
 ## 互动卡
 
