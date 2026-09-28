@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/dmmdekkd/douyin.ts/compare/v0.3.0...v0.4.0) (2026-09-28)
+
+
+### Features
+
+* 支持文本消息 @所有人 功能 ([92db6dc](https://github.com/dmmdekkd/douyin.ts/commit/92db6dc2329f091de36762d271d094f2054d9d81))
+
 ## [0.3.0](https://github.com/dmmdekkd/douyin.ts/compare/v0.2.1...v0.3.0) (2026-09-28)
 
 
