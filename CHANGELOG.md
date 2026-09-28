@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/dmmdekkd/douyin.ts/compare/v0.2.1...v0.3.0) (2026-09-28)
+
+
+### Features
+
+* 支持带 base64:// 前缀的内联 base64 媒体源 ([7a0fb09](https://github.com/dmmdekkd/douyin.ts/commit/7a0fb0922de413c8d5368b4b887eb477f52dc8ca))
+
 ## [0.2.1](https://github.com/dmmdekkd/douyin.ts/compare/v0.2.0...v0.2.1) (2026-09-27)
 
 
