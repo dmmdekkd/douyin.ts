@@ -56,6 +56,9 @@ export function mapProtoConversationListItem (raw: Record<string, unknown>): Gro
     | undefined
   const avatar = String(core?.['icon'] ?? ext?.['icon'] ?? core?.['avatar'] ?? ext?.['avatar'] ?? '')
   const ownerUid = String(ext?.['ownerUid'] ?? ext?.['owner'] ?? core?.['owner'] ?? '')
+  // 群号落在 ConversationCoreInfo.ext 的 a:s_group_number（HAR 实证），会话列表 extInfo 同键兜底
+  const coreExt = core?.['ext'] as Record<string, unknown> | undefined
+  const groupNumber = String(coreExt?.['a:s_group_number'] ?? ext?.['a:s_group_number'] ?? '')
   // participants 键为 userId（对齐 douyin-im member['uid'] ?? member['userId']）
   const members = (memberBox?.members ?? memberBox?.participants ?? []).map((member) => {
     const secUid = String(member['secUid'] ?? '')
@@ -75,6 +78,9 @@ export function mapProtoConversationListItem (raw: Record<string, unknown>): Gro
     ...(ownerUid && ownerUid !== '0' ? { ownerUid } : {}),
     lastMessageTime: Number(setting?.['lastMsgTime'] ?? 0),
     members,
+    ...(groupNumber ? { groupNumber } : {}),
+    // ticket 只随 610 详情下发（列表接口不回填），未取到时保持缺省
+    ...(raw['ticket'] ? { ticket: String(raw['ticket']) } : {}),
   }
 }
 

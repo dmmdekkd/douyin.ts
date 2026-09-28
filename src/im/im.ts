@@ -17,6 +17,7 @@ import * as emoji from './emoji.js'
 import type { EmojiInfo } from './emoji.js'
 import * as resource from './resource.js'
 import type { StickerCollectResult, StickerPage } from './resource.js'
+import * as share from './share.js'
 import type { EncryptedVideoUrl } from './media.js'
 import { createLog } from '../log.js'
 import type { Log } from '../log.js'
@@ -358,6 +359,11 @@ export class Im {
   /** 按 id 批量查会话详情（ticket/未读/成员），映射对齐列表会话 */
   conversationsInfo (items: ConversationAddress[]): Promise<GroupInfo[]> {
     return query.getInfoList(this.inboxCtx, items)
+  }
+
+  /** 群分享校验：用邀请链接的 secret 换取群邀请 ticket（不需先有 chatId） */
+  verifyShare (input: share.GroupShareInput): Promise<share.GroupShareResult> {
+    return share.verifyShare(this.http, input)
   }
 
   /** 会话成员已读游标（cmd=2000 get_read_index） */

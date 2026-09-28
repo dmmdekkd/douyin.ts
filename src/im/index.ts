@@ -54,6 +54,7 @@ export {
 } from './media.js'
 export * from './types.js'
 export { getEmojiList, type EmojiInfo } from './emoji.js'
+export { verifyShare, type GroupShareInput, type GroupShareResult } from './share.js'
 export {
   stickerList, stickerCollect, emojiTrending, strategyConfig, SCENES_FAVS,
   type Sticker, type StickerImage, type StickerPage, type StickerCollectResult, type StrategyConfig,

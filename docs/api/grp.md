@@ -148,3 +148,22 @@ const res = await bot.grp.create({
 | participantUids | string[] | - | 参与成员 uid（含创建者本人） |
 | name | string | - | 群名（可选） |
 | description | string | - | 群简介（可选） |
+
+## 群分享校验
+
+`bot.grp.verifyShare(input)` — 用群邀请链接换取群邀请凭证 `ticket` 与群资料，无需先有 `chatId`。传链接时自动解析其中的 `secret` 与 `group_id`；返回的 `ticket` 即传入的 `secret`（同值 AAED 串），与 `chat.info()` 下发的 ticket 是两条不同的串。
+
+```ts
+const r = await bot.grp.verifyShare({ share: 'https://v.douyin.com/xxx/' })
+// 纯 secret 需补群 conversationId 定位会话
+const one = await bot.grp.verifyShare({ share: 'AAED...', conversationId: '7683354495350293038' })
+// { ticket, conversationId, conversationShortId, name, desc, avatar?, memberCount, ownerUid?, ownerSecUid?, ownerNickname?, inviterUid?, inviterSecUid?, auditQuestion? }
+```
+
+### 参数
+
+| 参数 | 类型 | 可能的值 | 说明 |
+|------|------|----------|------|
+| share | string | - | 邀请链接或链接中的 secret（AAED 前缀） |
+| conversationId | string | - | 群 conversationId；链接自带 group_id 时可省略（可选） |
+| scene | number | - | 邀请卡场景 `invite_card_scene`，缺省 0（可选） |

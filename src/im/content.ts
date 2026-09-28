@@ -278,6 +278,8 @@ export function buildGroupCardContent (card: GroupCard, senderUid: string): stri
       ...(card.ownerUid ? { group_owner_uid: card.ownerUid } : {}),
       ...(card.ownerSecUid ? { sec_group_owner_uid: card.ownerSecUid } : {}),
       source: 0,
+      // ticket 服务端校验通过才派发；缺省(未填)仍按收卡回传形态提交
+      ...(card.ticket ? { ticket: card.ticket } : {}),
     },
     title: `邀请你加入「${name}」`,
     desc: `${inviter} 邀请你加入「${name}」群聊，快来看下吧。`,
@@ -561,6 +563,8 @@ export function parseBody (content: string, messageType?: number): RecvBody {
         ...(card?.['group_owner_nickname'] ? { ownerNickname: String(card['group_owner_nickname']) } : {}),
         fromUid: String(card?.['from_uid'] ?? ''),
         ...(card?.['sec_from_uid'] ? { fromSecUid: String(card['sec_from_uid']) } : {}),
+        // 收卡即带凭证，回传时服务端才能校验派发
+        ...(card?.['ticket'] ? { ticket: String(card['ticket']) } : {}),
       },
     }
   }

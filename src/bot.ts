@@ -22,6 +22,7 @@ import type { ImageAsset, VideoAsset, FileUploadAsset } from './im/index.js'
 import type { EncryptedVideoUrl, EmojiInfo } from './im/index.js'
 import type { GetPeerRequest, UserMessageQuery } from './im/index.js'
 import type { ConversationSettingInput, CreateGroupOptions } from './im/index.js'
+import type { GroupShareInput } from './im/index.js'
 import { resolveMedia, fileNameOf, probeVideo, extractVideoPoster, isInput } from './im/index.js'
 import type { MediaInput } from './im/index.js'
 import { Http } from './http/index.js'
@@ -351,6 +352,11 @@ class Grp {
   async create (options: CreateGroupOptions): Promise<Awaited<ReturnType<Im['createGroup']>> & { chatId?: string }> {
     const result = await this.bot.im().createGroup(options)
     return result.group ? { ...result, chatId: chatIdOf(result.group) } : result
+  }
+
+  /** 群分享校验：用邀请链接换群邀请凭证（ticket 可直接填入 groupCard.ticket 发卡） */
+  verifyShare (input: GroupShareInput): ReturnType<Im['verifyShare']> {
+    return this.bot.im().verifyShare(input)
   }
 }
 

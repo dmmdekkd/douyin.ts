@@ -22,6 +22,10 @@ export interface GroupInfo {
   ownerUid?: string
   lastMessageTime: number
   members: ConversationMember[]
+  /** 群号（ConversationCoreInfo.ext 的 a:s_group_number，客户端群资料页展示；私聊无） */
+  groupNumber?: string
+  /** 会话校验凭证（proto ConversationV2.ticket，发群邀请卡 aweme_invite_card.ticket 同源） */
+  ticket?: string
 }
 
 export interface ThreadPeer {

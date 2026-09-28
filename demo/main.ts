@@ -392,10 +392,42 @@ async function cmd (msg: BotMessage): Promise<void> {
         ? `位置已发送 ${lastLocation.name} (${lastLocation.latitude},${lastLocation.longitude}) msg=${result.serverMessageId ?? '-'}`
         : `位置被拒 status=${result.statusCode} check=${result.checkCode ?? '-'} ${result.statusMsg}`,
     ))
-  } else if (text === '/grpcard') {
-    // 群聊邀请卡：原样回传最近收到的群卡片；验证发送通道服务端行为
+  } else if (text.startsWith('/grpcard')) {
+    // 群聊邀请卡：/grpcard 回传最近收卡；/grpcard <群chatId|群名> 主动邀请（群名经群列表匹配）
+    // 群号不能作入口：a:s_group_number 只随 610 详情下发、群列表不带，无法反查会话
+    const arg = text.split(/\s+/)[1]
+    if (arg) {
+      const hit = arg.includes(':') ? undefined : (await bot.grp.list()).find(g => g.name === arg)
+      const chatId = hit?.chatId ?? arg
+      let info: Awaited<ReturnType<typeof bot.chat.info>>[number] | undefined
+      try {
+        [info] = await bot.chat.info(chatId)
+      } catch {
+        info = undefined
+      }
+      const name = hit?.name || info?.name || arg
+      if (!info?.ticket) {
+        await bot.msg.send(msg.chatId, textMsg(`查不到 ${arg} 的邀请凭证（传群名或完整 chatId）`))
+        return
+      }
+      const result = await bot.msg.send(msg.chatId, {
+        type: 'groupCard',
+        groupCard: {
+          conversationId: info.conversationId,
+          groupName: name,
+          memberCount: info.members.length,
+          ticket: info.ticket,
+        },
+      })
+      await bot.msg.send(msg.chatId, textMsg(
+        result.statusCode === 0
+          ? `群卡片已主动发送 ${name} msg=${result.serverMessageId ?? '-'}`
+          : `群卡片被拒 status=${result.statusCode} check=${result.checkCode ?? '-'} ${result.statusMsg}`,
+      ))
+      return
+    }
     if (!lastGroupCard) {
-      await bot.msg.send(msg.chatId, textMsg('先给我发一张群聊邀请卡'))
+      await bot.msg.send(msg.chatId, textMsg('先给我发一张群聊邀请卡，或 /grpcard <群chatId> 主动邀请'))
       return
     }
     const result = await bot.msg.send(msg.chatId, { type: 'groupCard', groupCard: lastGroupCard })
@@ -404,6 +436,22 @@ async function cmd (msg: BotMessage): Promise<void> {
         ? `群卡片已发送 ${lastGroupCard.groupName} msg=${result.serverMessageId ?? '-'}`
         : `群卡片被拒 status=${result.statusCode} check=${result.checkCode ?? '-'} ${result.statusMsg}`,
     ))
+  } else if (text.startsWith('/gticket')) {
+    // 群分享换 ticket：/gticket <邀请链接|secret> [群名|chatId]（纯 secret 需第二参定位会话）
+    const [, link, groupArg] = text.split(/\s+/)
+    if (!link) {
+      await bot.msg.send(msg.chatId, textMsg('用法：/gticket <邀请链接|secret> [群名|chatId]'))
+      return
+    }
+    const hit = groupArg
+      ? (await bot.grp.list()).find(g => g.name === groupArg || g.chatId === groupArg)
+      : undefined
+    try {
+      const r = await bot.grp.verifyShare({ share: link, ...(hit ? { conversationId: hit.conversationId } : {}) })
+      await bot.msg.send(msg.chatId, textMsg(`群分享校验成功 ${r.name}(${r.conversationId}) ticket=${r.ticket.length} 字节`))
+    } catch (error) {
+      await bot.msg.send(msg.chatId, textMsg(`群分享校验失败：${error instanceof Error ? error.message : String(error)}`))
+    }
   } else if (text.startsWith('/typing')) {
     // 上报输入状态：on 显示「正在输入…」，off/其它停止（走 Android WS cmd=411，fire-and-forget）
     const typing = !text.includes('off')

@@ -114,6 +114,8 @@ export interface GroupCard {
   fromSecUid?: string
   /** 邀请人昵称（title/desc 文案；缺省用 uid） */
   fromNickname?: string
+  /** 群邀请凭证（aweme_invite_card.ticket）：经 chat.info 查目标群详情取得，服务端校验通过才派发卡片 */
+  ticket?: string
 }
 
 /** 位置消息载荷（messageType=502 POI 定位）：坐标 + 地点信息 + 封面图 */

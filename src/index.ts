@@ -63,4 +63,6 @@ export type {
   StickerImage,
   StickerPage,
   StickerCollectResult,
+  GroupShareInput,
+  GroupShareResult,
 } from './im/index.js'
