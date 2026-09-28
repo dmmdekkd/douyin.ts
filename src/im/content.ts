@@ -373,6 +373,35 @@ function stripMentions (text: string, mentions: TextMention[]): string {
   return rest
 }
 
+/** 系统消息占位用户（active_users/passive_users）：取昵称，缺昵称回退 uid */
+function placeholderUsers (value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const names: string[] = []
+  for (const item of value) {
+    const record = objectValue(item)
+    const name = String(record?.['nickname'] ?? record?.['nick_name'] ?? record?.['uid'] ?? '')
+    if (name) names.push(name)
+  }
+  return names
+}
+
+/**
+ * 群系统消息文案（messageType=1001，成员进出/群资料变更等）：服务端只下发模板，
+ * 正文在 locale_resources（zh 优先）、回退 template，{0}/{1} 占位按 active_users→passive_users 顺序填昵称
+ */
+function systemMessageText (value: Record<string, unknown>): string {
+  const resources = (Array.isArray(value['locale_resources']) ? value['locale_resources'] : [])
+    .map(objectValue)
+    .filter((item): item is Record<string, unknown> => item !== undefined)
+  const localized = (resources.find(item => String(item['lang'] ?? '').startsWith('zh')) ?? resources[0])?.['text']
+  const template = typeof localized === 'string' && localized
+    ? localized
+    : typeof value['template'] === 'string' ? value['template'] : ''
+  if (!template) return ''
+  const users = [...placeholderUsers(value['active_users']), ...placeholderUsers(value['passive_users'])]
+  return template.replace(/\{(\d+)\}/g, (slot, index: string) => users[Number(index)] ?? slot)
+}
+
 /**
  * 解析 wire content 为收侧消息体（RecvBody）：type 判别 + 载荷字段平铺，媒体恒为资产/资源形态。
  * text 恒为可读展示文本（含媒体占位）；@ 提及并入 text 的 ats（纯 @ 消息 text 保留原文）。
@@ -567,6 +596,11 @@ export function parseBody (content: string, messageType?: number): RecvBody {
         ...(card?.['ticket'] ? { ticket: String(card['ticket']) } : {}),
       },
     }
+  }
+  // 群系统消息（messageType=1001）：文案在 locale_resources/template，渲染出可读文本而非丢给 unknown
+  if (messageType === 1001) {
+    const system = systemMessageText(value)
+    if (system) return { type: 'text', text: system }
   }
   // 明确不支持的 wire 类型不得从通用 resource 字段猜测
   if (messageType != null && ![1, 2, 5, 7, 27, 30].includes(messageType)) {

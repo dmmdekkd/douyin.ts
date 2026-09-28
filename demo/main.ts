@@ -57,15 +57,21 @@ const bot = new Bot({ ...session, selfMessage: true })
 // 最近一条视频消息（/vurl /vdl 测试用；url 为事件自动补拉的加密播放地址）
 let lastVideo: { tkey: string; skey: string; url?: EncryptedVideoUrl } | undefined
 
-// 群成员变更明细展示（/status 打印用；role 0 普通 / 1 群主 / 2 管理员）
+// 群成员变更明细展示（status 打印用；role 0 普通 / 1 群主 / 2 管理员）
 function memberDetail (m: GroupMemberChange): string {
   const roleName = (r: number) => r === 1 ? '群主' : r === 2 ? '管理员' : '普通成员'
   const parts: string[] = []
-  for (const u of m.updated) parts.push(`${u.uid}=${roleName(u.role)}${u.alias ? `(${u.alias})` : ''}`)
+  // alias 有值为新昵称、空串为昵称被清空（未下发则无此键）
+  for (const u of m.updated) parts.push(`${u.uid}=${roleName(u.role)}${u.alias == null ? '' : u.alias ? `(昵称=${u.alias})` : '(昵称清空)'}`)
   if (m.added.length) parts.push(`+${m.added.join(',')}`)
   if (m.removed.length) parts.push(`-${m.removed.join(',')}`)
   if (m.newOwnerId) parts.push(`群主=${m.oldOwnerId ?? '?'}→${m.newOwnerId}`)
   return parts.length ? ` ${parts.join(' ')}` : ''
+}
+
+/** 纯资料变更帧（无增删/无群主移交）即群昵称等成员资料变更，与成员进出区分展示 */
+function isMemberAliasOnly (m: GroupMemberChange | undefined): boolean {
+  return !!m && m.added.length === 0 && m.removed.length === 0 && !m.newOwnerId && m.updated.some(u => u.alias != null)
 }
 
 // 最近一条作品分享（/share 测试用：复用作者信息发卡片）
@@ -177,6 +183,8 @@ bot.on('notice', n => {
   dump('notice', n)
   if (n.type === 'conversation.typing') {
     log.info(`输入状态 [${n.conversationId}] ${n.senderUid}: ${n.typing ? '正在输入…' : '已停止'}`)
+  } else if (n.type === 'group.dismiss') {
+    log.info(`群解散 [${n.conversationId}] 操作者=${n.operatorUid ?? '未知'}`)
   } else {
     log.info(`通知: ${n.type}`)
   }
@@ -192,7 +200,7 @@ bot.on('read', r => {
 })
 bot.on('status', s => {
   dump('status', s)
-  const what = s.nameChange ? '群名变更' : s.avatarChange ? '群头像变更' : s.memberChange ? '群成员变更' : s.commandType === 2 ? '消息删除' : `cmd=${s.commandType}`
+  const what = s.nameChange ? '群名变更' : s.avatarChange ? '群头像变更' : isMemberAliasOnly(s.memberChange) ? '群昵称变更' : s.memberChange ? '群成员变更' : s.commandType === 2 ? '消息删除' : `cmd=${s.commandType}`
   const unread = s.unread != null ? `未读=${s.unread}` : '未读数未变'
   const detail = s.nameChange
     ? ` 新名=${s.nameChange.name} 操作者=${s.nameChange.operatorUid || '-'}`

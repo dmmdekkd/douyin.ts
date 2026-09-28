@@ -5,7 +5,9 @@
   "packages": {
     ".": {
       "package-name": "douyin.ts",
-      "initial-version": "0.1.0"
+      "initial-version": "0.1.0",
+      "bump-patch-for-minor-pre-major": true,
+      "bump-minor-pre-major": true
     }
   }
 }

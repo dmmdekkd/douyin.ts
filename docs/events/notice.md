@@ -92,7 +92,7 @@ bot.on('notice', n => {
 
 ## 会话删除
 
-`conversation.delete` — 会话被删除。
+`conversation.delete` — 会话被删除（`messageType=50005`，该帧 `content` 为空、标记只在 `ext`）。群被解散时也会随之下发（`ext[':dissolv_his']`），此时另发 [群解散](#群解散)。
 
 ### 事件数据
 
@@ -101,6 +101,7 @@ bot.on('notice', n => {
 | type | string | `conversation.delete` | 事件类型 |
 | conversationId | string | - | 会话 id |
 | conversationType | number | `1` `2` | 1 私聊 / 2 群聊 |
+| ext | object | - | 原始推送 ext（f:9 key-values） |
 | raw | object | - | 原始推送解析结果 |
 
 ## 好友关系建立
@@ -151,6 +152,8 @@ bot.on('notice', n => {
 | members | NoticeUser[] | - | 加入的成员（`{ uid, secUid?, nickname? }`） |
 | operators | NoticeUser[] | - | 操作者 |
 | raw | object | - | 原始推送解析结果 |
+
+系统消息由本机发出时（自己拉人入群）同样触发；成员增删另有 [status](./status) 的 `memberChange` 明细。
 
 ## 群成员退出
 
@@ -216,6 +219,28 @@ bot.on('notice', n => {
 | conversationType | number | `2` | 群聊 |
 | avatar | string | - | 新头像 URL（取不到时缺省，仍保留通知与 raw） |
 | operators | NoticeUser[] | - | 操作者 |
+| raw | object | - | 原始推送解析结果 |
+
+## 群解散
+
+`group.dismiss` — 群被解散（`messageType=1001`，`aweType=100124`「群聊已被解散」）。会话随之下发 [会话删除](#会话删除)。
+
+```ts
+bot.on('notice', n => {
+  if (n.type === 'group.dismiss') console.log(`群 ${n.conversationId} 已被 ${n.operatorUid} 解散`)
+})
+```
+
+### 事件数据
+
+| 字段 | 类型 | 可能的值 | 说明 |
+|------|------|----------|------|
+| type | string | `group.dismiss` | 事件类型 |
+| conversationId | string | - | 群会话 id |
+| conversationShortId | string | - | 群会话短 id |
+| conversationType | number | `2` | 群聊 |
+| operatorUid | string | - | 解散操作者 uid（取推送发送方，取不到时缺省） |
+| operators | NoticeUser[] | - | 操作者（`{ uid, secUid?, nickname? }`） |
 | raw | object | - | 原始推送解析结果 |
 
 ## 未分类指令

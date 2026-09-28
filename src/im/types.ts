@@ -363,11 +363,11 @@ export interface GroupMemberUpdate {
   uid: string
   role: number
   secUid?: string
-  /** 群内昵称（未设缺省） */
+  /** 群昵称：本帧下发即表示昵称被变更（有值=新昵称，空串=昵称被清空）；未下发表示本帧未涉及昵称 */
   alias?: string
 }
 
-/** 群成员变更（command_type=7）：增删成员与角色/群主变更 */
+/** 群成员变更（command_type=7）：增删成员与角色/群主/群昵称变更；added/removed 均空而 updated 非空即成员资料变更 */
 export interface GroupMemberChange {
   /** 新增成员 uid（added_participant） */
   added: string[]
@@ -375,9 +375,9 @@ export interface GroupMemberChange {
   removed: string[]
   /** 角色/群昵称等资料变更明细（modified_participant 对应 updated_participant_info） */
   updated: GroupMemberUpdate[]
-  /** 变更前群主 uid（old_owner_id；仅群主变更帧带且非 0） */
+  /** 变更前群主 uid（仅群主移交帧与 newOwnerId 成对带出） */
   oldOwnerId?: string
-  /** 变更后群主 uid（new_owner_id；仅群主变更帧带且非 0） */
+  /** 变更后群主 uid（new_owner_id 非 0 即群主移交；普通帧无此键） */
   newOwnerId?: string
 }
 
@@ -400,7 +400,7 @@ export interface StatusEvent {
   nameChange?: { name: string; operatorUid: string }
   /** 群头像变更（command_type=6 且 ext_data 含 a:group_avatar_user_set / s_user_set_avatar / a:ab_avatar）；icon 为新头像 URL，operatorUid 来自前者（ab_avatar 帧缺省空） */
   avatarChange?: { icon: string; operatorUid: string }
-  /** 群成员变更（command_type=7）：增删成员/角色变更/群主变更 */
+  /** 群成员变更（command_type=7）：增删成员/角色变更/群主变更/群昵称变更 */
   memberChange?: GroupMemberChange
   /** 会话属性变更（command_type=6 时带；如 a:chat_theme） */
   extData?: StatusExtItem[]
@@ -474,6 +474,8 @@ export type NoticeEvent =
     type: 'conversation.delete'
     conversationId: string
     conversationType: number
+    /** 原始推送 ext（f:9 key-values；群解散导致的删除带 :dissolv_his 标记） */
+    ext?: Readonly<Record<string, string>>
     raw: Record<string, unknown>
   }
   | {
@@ -515,7 +517,7 @@ export type NoticeEvent =
     raw: Record<string, unknown>
   }
   | {
-    /** messageType=7, aweType=100110；设为管理员。 */
+    /** messageType=1001, aweType=100110；设为管理员。 */
     type: 'group.admin'
     conversationId: string
     conversationShortId: string
@@ -526,7 +528,7 @@ export type NoticeEvent =
     raw: Record<string, unknown>
   }
   | {
-    /** messageType=7, aweType=100106；name 取不到时仍保留通知和 raw。 */
+    /** messageType=1001, aweType=100106；name 取不到时仍保留通知和 raw。 */
     type: 'group.name-change'
     conversationId: string
     conversationShortId: string
@@ -536,12 +538,23 @@ export type NoticeEvent =
     raw: Record<string, unknown>
   }
   | {
-    /** messageType=7, aweType=100115；avatar 取不到时仍保留通知和 raw。 */
+    /** messageType=1001, aweType=100115；avatar 取不到时仍保留通知和 raw。 */
     type: 'group.avatar-change'
     conversationId: string
     conversationShortId: string
     conversationType: 2
     avatar?: string
+    operators: NoticeUser[]
+    raw: Record<string, unknown>
+  }
+  | {
+    /** messageType=1001, aweType=100124；群被解散（解散者即推送发送方，无 active_users）。 */
+    type: 'group.dismiss'
+    conversationId: string
+    conversationShortId: string
+    conversationType: 2
+    /** 解散操作者（取推送发送方；取不到时缺省） */
+    operatorUid?: string
     operators: NoticeUser[]
     raw: Record<string, unknown>
   }

@@ -24,6 +24,8 @@ const GROUP_MEMBER_INCREASE_TYPES = new Map<number, GroupMemberIncreaseSource>([
   [100112, 'activity'],
   [100113, 'face-to-face'],
   [100114, 'circle'],
+  // 「你邀请{1}加入了群聊」/「{0}邀请你加入了群聊」两种视角同型，均为邀请入群
+  [100140, 'invite'],
 ])
 
 const GROUP_MEMBER_DECREASE_TYPES = new Map<number, GroupMemberDecreaseSource>([
@@ -101,7 +103,8 @@ function firstString (record: Record<string, unknown> | undefined, keys: string[
 
 function commandPayload (content: string): Record<string, unknown> | undefined {
   try {
-    return asRecord(JSON.parse(content))
+    // 16+ 位整数（uid/conversation_id）超出 Number 精度，包成字符串再 parse（同 recv.ts parseContent）
+    return asRecord(JSON.parse(content.replace(/"(\w+)"\s*:\s*(\d{16,})/g, '"$1":"$2"')))
   } catch {
     return undefined
   }
@@ -202,19 +205,22 @@ function groupMetadataNoticeFromPush (
     ])
     return { type: 'group.avatar-change', ...base, ...(avatar ? { avatar } : {}) }
   }
+  if (aweType === 100124) {
+    // 「群聊已被解散」：payload 只有 locale_resources，无 active_users，解散者即推送发送方
+    const uid = push.senderUid || noticeUsers(payload['active_users'])?.[0]?.uid
+    return {
+      type: 'group.dismiss',
+      ...base,
+      ...(uid ? { operatorUid: uid, operators: [{ uid }] } : {}),
+    }
+  }
   return undefined
 }
 
 /** messageType=50011 群成员进出 diff（block_status 1=被移出/0=加入）；与 aweType 系统消息双通道并存 */
 function groupMemberDiffFromPush (push: PushMessage): NoticeEvent | undefined {
   if (push.conversationType !== 2) return undefined
-  // content 内 user_id 可达 16 位+，逐项包引号保精度（同 recv.ts parseContent）
-  let payload: Record<string, unknown> | undefined
-  try {
-    payload = asRecord(JSON.parse(push.content.replace(/"(\w+)"\s*:\s*(\d{16,})/g, '"$1":"$2"')))
-  } catch {
-    return undefined
-  }
+  const payload = commandPayload(push.content)
   const blockStatus = Number(payload?.['block_status'])
   if (blockStatus !== 0 && blockStatus !== 1) return undefined
   const members: NoticeUser[] = []
@@ -282,10 +288,12 @@ export function noticeFromPush (push: PushMessage): NoticeEvent | RequestEvent |
     }
   }
   if (push.messageType === 50005) {
+    // 会话删除（私聊删会话 / 群解散后清会话）；content 为空，标记只在 ext（:dissolv_his 表示解散）
     return {
       type: 'conversation.delete',
       conversationId: push.conversationId,
       conversationType: push.conversationType,
+      ...(push.ext ? { ext: push.ext } : {}),
       raw: push.raw,
     }
   }

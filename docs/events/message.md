@@ -37,6 +37,8 @@ bot.on('message', msg => {
 
 各 `type` 的载荷字段（图片 `image`、视频 `video`、文件 `file` 等媒体资产形态）见[消息类型](/guide/message)。
 
+未识别的 `messageType` 返回 `unknown` 并保留 `raw`。群系统消息（`messageType=1001`，如「xxx 邀请你加入了群聊」「群聊已被解散」）按 `locale_resources` 模板渲染为 `text`，`{0}`/`{1}` 占位按 `active_users` → `passive_users` 顺序填成员昵称；模板缺失时退回 `unknown`。已识别的系统消息（成员进出、群名/头像变更、群解散等）不发 `message`，另走 [notice](/events/notice)。
+
 ## 消息编辑
 
 `message:edited` — 消息被编辑。与 `message` 互斥，对自身编辑也触发，`serverMessageId` 为原消息 id。

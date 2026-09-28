@@ -195,6 +195,16 @@ export class Im {
         this.emit('message:edited', toInboundMessage(push))
         continue
       }
+      // 群系统消息（1001：成员进出/群资料变更）常由本机触发（自己踢人/拉人），
+      // 需先于自发过滤分流为 notice，否则本机操作产生的事件会被当作自发消息丢掉；
+      // 未识别的 1001（如群公告）继续往下走，由 message 通道渲染为文本
+      if (push.messageType === 1001) {
+        const event = noticeFromPush(push)
+        if (event) {
+          this.routeEvent(event)
+          continue
+        }
+      }
       // 50011 群成员进出 diff（block_status 通道）与普通 500x 信令不同，需透出为 notice
       if (push.messageType === 50011) {
         const event = noticeFromPush(push)

@@ -46,7 +46,8 @@ bot.on('close', () => console.log('连接关闭'))
 | card | ✓ | ⚠ | 互动卡片 |
 | location | ✓ | ⚠ | 位置|
 | groupCard | ✓ | ✓ | 群邀请卡 |
-| unknown | ✓ | ✗ | 未识别类型兜底 |
+| chains | ✓ | ✗ | 盖楼（楼中楼） |
+| unknown | ✓ | ✗ | 未识别类型兜底（`raw` 保留原始推送） |
 
 ## 发消息
 

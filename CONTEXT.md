@@ -98,7 +98,7 @@ bot.user.self()
 
 版本管理（release-please，首版 initial-version 0.1.0）：
 
-- 提交信息走 Conventional Commits：`feat:` → minor（0.1.0 → 0.2.0），`fix:` → patch（0.2.0 → 0.2.1）
+- 提交信息走 Conventional Commits；1.0.0 之前保守发版（`bump-patch-for-minor-pre-major` + `bump-minor-pre-major`）：`feat:` → patch（0.6.0 → 0.6.1），`fix:` → patch，`feat!`/BREAKING CHANGE → minor（0.6.0 → 0.7.0，不跳 1.0.0）
 - push main → 自动开/更新 Release PR（汇总版本号 + CHANGELOG.md）→ 合并 Release PR → 打 tag + GitHub Release → 正式发布链自动执行
 
 预览包版本派生（基于 package.json 版本）：PR → `x.y.z-alpha.PR号.提交数`，main push → `x.y.z-beta.提交数.时间戳`。

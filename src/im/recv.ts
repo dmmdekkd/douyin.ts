@@ -30,6 +30,9 @@ export function toInboundMessage (push: PushMessage): InboundMessage {
  * 群聊（纯数字 conversationId）与私聊（0:1:xxx:xxx）均走此路径。
  * ------------------------------------------------------------------------- */
 
+/** content 恒为空、信息全在 ext 的命令帧类型（50005 会话删除/群解散，实证帧 content 为空） */
+const BODYLESS_COMMAND_TYPES = new Set([50005])
+
 interface MessageContext {
   cmd?: number
   inboxType?: number
@@ -162,7 +165,10 @@ function collectMessages (
     item.type === 'string' && (item.field === 8 || item.field === 6) && item.value.trimStart().startsWith('{'),
   )
   const content = contentField?.value ?? ''
-  if (context.conversationId && context.senderUid && (contentField || context.isThreadRoot)) {
+  // 无正文命令帧：content 为空、信息全在 ext（如 50005 会话删除/群解散），不放行则事件没有任何出口
+  const bodylessCommand = !contentField && threadExt.size > 0 &&
+    BODYLESS_COMMAND_TYPES.has(Number(fieldString(fields, 6) ?? 7))
+  if (context.conversationId && context.senderUid && (contentField || context.isThreadRoot || bodylessCommand)) {
     output.push({
       cmd: context.cmd ?? 500,
       ...(context.inboxType !== undefined ? { inboxType: context.inboxType } : {}),
@@ -251,6 +257,7 @@ export function toStatusEvent (push: PushMessage): StatusEvent | undefined {
   const conversationId = info.conversation_id
   if (conversationId == null) return undefined
   const extData = Array.isArray(info.ext_data) ? statusExt(info.ext_data) : undefined
+  const memberDiff = num(info.command_type) === 7 ? memberChange(info) : undefined
   return {
     type: 'status',
     conversationId: str(conversationId),
@@ -259,9 +266,9 @@ export function toStatusEvent (push: PushMessage): StatusEvent | undefined {
     ...(info.read_badge_count != null ? { unread: num(info.read_badge_count) } : {}),
     readIndex: str(info.read_index),
     ...(push.serverMessageId ? { messageId: push.serverMessageId } : {}),
-    // command_type=6 会话属性变更帧：按 ext_data 键判定群名/群头像变更，取本帧全量下发的新值；=7 群成员变更帧：按增删/角色/群主变更解析
+    // command_type=6 会话属性变更帧：按 ext_data 键判定群名/群头像变更，取本帧全量下发的新值；=7 群成员变更帧：按增删/角色/群主/群昵称变更解析
     ...(num(info.command_type) === 6 ? convChange(info, extData) : {}),
-    ...(num(info.command_type) === 7 ? memberChange(info) : {}),
+    ...(memberDiff ? { memberChange: memberDiff } : {}),
     ...(extData ? { extData } : {}),
     raw: info,
   }
@@ -285,7 +292,7 @@ function convChange (info: Record<string, unknown>, extData?: StatusExtItem[]): 
   return {}
 }
 
-/** command_type=7 帧 → 群成员变更（增删成员/角色变更/群主变更）；无任何变化返回 undefined */
+/** command_type=7 帧 → 群成员变更（增删成员/角色/群主/群昵称变更）；无任何变化返回 undefined */
 function memberChange (info: Record<string, unknown>): GroupMemberChange | undefined {
   const updated = (Array.isArray(info.updated_participant_info) ? info.updated_participant_info : [])
     .map((item): GroupMemberUpdate => {
@@ -294,22 +301,25 @@ function memberChange (info: Record<string, unknown>): GroupMemberChange | undef
         uid: str(it.user_id),
         role: num(it.role),
         ...(it.sec_uid ? { secUid: str(it.sec_uid) } : {}),
-        ...(it.alias ? { alias: str(it.alias) } : {}),
+        // alias 下发即变更（含空串=昵称被清空），未下发才是「未涉及昵称」，故不做真值判断
+        ...(typeof it.alias === 'string' ? { alias: it.alias } : {}),
       }
     })
     .filter(u => u.uid !== '')
   const added = stringArray(info.added_participant)
   const removed = stringArray(info.removed_participant)
   if (added.length === 0 && removed.length === 0 && updated.length === 0) return undefined
-  // old/new_owner_id 非 0 才是群主变更（protectBigInt 后恒为字符串）
+  // 群主变更只有 new_owner_id 非 0 才算：普通帧的 old_owner_id 是现任群主（恒有值），
+  // 单看它会误判成「群主移交」，故 old/new 必须成对透出
   const oldOwnerId = str(info.old_owner_id)
   const newOwnerId = str(info.new_owner_id)
+  const transfer = newOwnerId !== '' && newOwnerId !== '0'
   return {
     added,
     removed,
     updated,
-    ...(oldOwnerId && oldOwnerId !== '0' ? { oldOwnerId } : {}),
-    ...(newOwnerId && newOwnerId !== '0' ? { newOwnerId } : {}),
+    ...(transfer && oldOwnerId !== '' && oldOwnerId !== '0' ? { oldOwnerId } : {}),
+    ...(transfer ? { newOwnerId } : {}),
   }
 }
 
