@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/dmmdekkd/douyin.ts/compare/v0.5.0...v0.6.0) (2026-09-28)
+
+
+### Features
+
+* 支持小表情 id 作为 emoji 参数，新增表情消息发送功能 ([20c6f85](https://github.com/dmmdekkd/douyin.ts/commit/20c6f8534001983d70197630b8813570185146b8))
+
 ## [0.5.0](https://github.com/dmmdekkd/douyin.ts/compare/v0.4.0...v0.5.0) (2026-09-28)
 
 
