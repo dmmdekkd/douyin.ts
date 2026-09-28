@@ -9,8 +9,10 @@ export const isInput = (v: unknown): v is MediaInput =>
   typeof v === 'string' || v instanceof Uint8Array || v instanceof ArrayBuffer
 
 const BASE64 = /^[A-Za-z0-9+/=\s]{32,}$/
+// 即显式 base64 内联（如 IM 消息里常见的 base64:// 前缀），剥前缀后同裸 base64 处理
+const INLINE = /^base64:\/\//i
 
-/** 输入分流：URL 下载 / 存在的路径读文件 / base64 解码 / 字节原样返回 */
+/** 输入分流：URL 下载 / 存在的路径读文件 / base64（含 base64:// 前缀）解码 / 字节原样返回 */
 export async function resolveMedia (input: MediaInput): Promise<Uint8Array> {
   if (typeof input !== 'string') return input instanceof Uint8Array ? input : new Uint8Array(input)
   if (/^https?:\/\//i.test(input)) {
@@ -19,13 +21,16 @@ export async function resolveMedia (input: MediaInput): Promise<Uint8Array> {
     return new Uint8Array(await res.arrayBuffer())
   }
   if (existsSync(input)) return readFile(input)
-  if (BASE64.test(input)) return Buffer.from(input.replace(/\s/g, ''), 'base64')
+  if (BASE64.test(input) || INLINE.test(input)) {
+    return Buffer.from(input.replace(INLINE, '').replace(/\s/g, ''), 'base64')
+  }
   throw new Error(`无法识别的媒体源（URL/存在的路径/base64 之外）: ${input.slice(0, 80)}`)
 }
 
-/** 从输入推断文件名：路径/URL 取 basename，字节与 base64 缺省 file */
+/** 从输入推断文件名：路径/URL 取 basename，字节与 base64（含 base64:// 前缀）缺省 file */
 export function fileNameOf (input: MediaInput): string {
   if (typeof input !== 'string') return 'file'
+  if (INLINE.test(input)) return 'file'
   const name = decodeURIComponent(input.split(/[?#]/)[0].split(/[\\/]/).pop() ?? '')
   return name || 'file'
 }
