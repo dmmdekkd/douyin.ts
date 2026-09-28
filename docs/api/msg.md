@@ -57,6 +57,12 @@ bot.on('message', async msg => {
 
 ```ts
 await bot.msg.reply(chatId, msg, '回复内容')
+
+// 引用 + @所有人（需群主/管理员权限）
+await bot.msg.reply(chatId, msg, '记得填表', { atAll: true })
+
+// 引用 + @提及
+await bot.msg.reply(chatId, msg, '看这条', { ats: [{ uid: 'uid', nickname: '昵称' }] })
 ```
 
 ### 参数
@@ -66,6 +72,7 @@ await bot.msg.reply(chatId, msg, '回复内容')
 | chatId | string | - | 会话标识 |
 | msg | object | - | 收到的消息对象，取引用元数据 |
 | text | string | - | 回复文本 |
+| opts | object | - | 可选；`{ atAll?, ats? }`，与发送文本 `@所有人` / `@提及` 同形态 |
 
 ## 合并转发
 

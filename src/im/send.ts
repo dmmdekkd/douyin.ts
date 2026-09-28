@@ -465,9 +465,13 @@ export interface ReplyOptions extends ConversationAddress {
   referencedText?: string
   rootMessageId?: string
   rootMessageConvIndex?: string
+  /** @所有人 引用回复：正文前置「@所有人 」占位，f9 mentioned_users=[0]（与 sendBody 同形态） */
+  atAll?: boolean
+  /** @ 提及（正文 richTextInfos + f9 mentionedUsers）；缺省纯文本 */
+  ats?: Array<{ uid: string; nickname?: string }>
 }
 
-/** 引用回复：正文 desktop 文本模板 + refMsgInfo（cmd100 field 11） */
+/** 引用回复：正文 desktop 文本模板 + refMsgInfo（cmd100 field 11）；atAll/ats 时正文换 @ 模板并透传 f9 */
 export async function reply (ctx: SendContext, options: ReplyOptions): Promise<SendMessageResponse> {
   const payload = buildReplyPayload({
     text: options.text,
@@ -480,11 +484,19 @@ export async function reply (ctx: SendContext, options: ReplyOptions): Promise<S
     ...(options.rootMessageId ? { rootMessageId: options.rootMessageId } : {}),
     ...(options.rootMessageConvIndex ? { rootMessageConvIndex: options.rootMessageConvIndex } : {}),
   })
+  // @所有人/@提及 的引用回复正文走对应模板（atAll 优先）；纯文本引用保持 buildReplyPayload 默认
+  const content = options.atAll
+    ? buildAtAllTextContent(options.text)
+    : options.ats?.length
+      ? textWithAts(options.text, options.ats, options.conversationId).content
+      : payload.content
+  const { ats, ...sendOptions } = options
   return send(ctx, {
-    ...options,
-    content: payload.content,
+    ...sendOptions,
+    content,
     messageType: 7,
     reference: payload.reference,
+    ...(ats?.length ? { mentionedUsers: [...new Set(ats.map(m => m.uid))] } : {}),
   })
 }
 

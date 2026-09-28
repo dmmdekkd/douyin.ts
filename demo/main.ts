@@ -214,7 +214,7 @@ log.info(`bot 已启动 uid=${bot.id}，Ctrl+C 退出`)
 // 冒烟：拉好友/群列表验证 HTTP 通道
 const [frds, grps] = [await bot.frd.list(), await bot.grp.list()]
 log.info(`好友 ${frds.length} 个，群 ${grps.length} 个`)
-log.info('命令: ping /echo x /at /atall /img /video /videop /vurl /vdl /file /reply /react /recall /edit /forward /read /share [itemId] /user /checkin /locate /typing on|off /call /thread')
+log.info('命令: ping /echo x /at /atall /img /video /videop /vurl /vdl /file /reply /replyall /replyat /react /recall /edit /forward /read /share [itemId] /user /checkin /locate /typing on|off /call /thread')
 
 const friend = frds[0]
 if (friend) log.info(`示例 chatId: ${friend.chatId}`)
@@ -282,6 +282,14 @@ async function cmd (msg: BotMessage): Promise<void> {
     await bot.msg.send(msg.chatId, { type: 'file', file: { source: Buffer.from('douyin.ts 文件消息测试'), name: 'test.txt' } })
   } else if (text === '/reply') {
     await bot.msg.reply(msg.chatId, msg, '引用回复测试')
+  } else if (text === '/replyall') {
+    // 引用 + @所有人（需群主/管理员权限）：reply 第四参 atAll，正文前置「@所有人 」占位
+    const tail = text.slice(9).trim() || '引用+@所有人测试'
+    await bot.msg.reply(msg.chatId, msg, tail, { atAll: true })
+  } else if (text === '/replyat') {
+    // 引用 + @提及：reply 第四参 ats（@当前发送者），正文是否带文字都行
+    const tail = text.slice(8).trim() || ''
+    await bot.msg.reply(msg.chatId, msg, tail, { ats: [{ uid: msg.senderUid }] })
   } else if (text === '/react') {
     await bot.msg.react(msg.chatId, msg.serverMessageId!, '[爱心]')
   } else if (text === '/recall') {

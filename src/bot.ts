@@ -153,8 +153,8 @@ class Msg {
     return this.bot.im().callVoice(toAddress(chatId), calleeUid)
   }
 
-  /** 引用回复：消息对象来自 bot.on('message')，自动提取引用元数据 */
-  reply (chatId: string, msg: BotMessage, text: string): ReturnType<Im['reply']> {
+  /** 引用回复：消息对象来自 bot.on('message')，自动提取引用元数据；opts 可带 @所有人/@提及（与发送文本同形态） */
+  reply (chatId: string, msg: BotMessage, text: string, opts?: Pick<ReplyOptions, 'atAll' | 'ats'>): ReturnType<Im['reply']> {
     const options: ReplyOptions = {
       ...toAddress(chatId),
       text,
@@ -164,6 +164,7 @@ class Msg {
       referencedSecUid: msg.senderSecUid,
       referencedText: msg.text,
       rootMessageId: msg.reference?.rootMessageId,
+      ...opts,
     }
     return this.bot.im().reply(options)
   }
