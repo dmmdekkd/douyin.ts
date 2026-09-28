@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/dmmdekkd/douyin.ts/compare/v0.4.0...v0.5.0) (2026-09-28)
+
+
+### Features
+
+* 为引用回复新增 @所有人 和 @提及 功能 ([0781edb](https://github.com/dmmdekkd/douyin.ts/commit/0781edb1c56c72aaabb093ad731ab6eb0530ce92))
+
 ## [0.4.0](https://github.com/dmmdekkd/douyin.ts/compare/v0.3.0...v0.4.0) (2026-09-28)
 
 
