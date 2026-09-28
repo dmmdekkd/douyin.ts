@@ -61,6 +61,29 @@ export function buildDesktopTextContent (text: string, mentions: TextMention[] =
   })
 }
 
+/**
+ * Desktop IM 文本 + @所有人 content：占位「@所有人 」从开头插入（length=5、location=0）。
+ * richTextInfos 镜像收侧实测样本（infoType=4 mention_label 标记 + infoType=2 加粗），
+ * font_weight 为数字（对齐 HAR 权威样本）——发侧 @all 判定另靠 ext s:mentioned_users="0"。
+ */
+export function buildAtAllTextContent (text: string): string {
+  const label = '@所有人 '
+  return JSON.stringify({
+    aweType: 700,
+    type: 0,
+    instruction_type: 0,
+    item_type_local: -1,
+    richTextInfos: [
+      { info: { mention_label: '1' }, infoType: 4, length: label.length, location: 0 },
+      { info: { font_weight: 2 }, infoType: 2, length: label.length, location: 0 },
+    ],
+    text: label + text,
+    createdAt: 0,
+    is_card: false,
+    msgHint: '',
+  })
+}
+
 export function buildImageContent (image: {
   oid: string
   skey: string

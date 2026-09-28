@@ -12,6 +12,9 @@ await bot.msg.send(chatId, { type: 'text', text: 'hi' })
 // 文本附 @
 await bot.msg.send(chatId, { type: 'text', text: '你好', ats: [{ uid: 'uid', nickname: '昵称' }] })
 
+// 文本 @所有人：占位「@所有人 」自动前置（需群主/管理员权限）
+await bot.msg.send(chatId, { type: 'text', text: '记得填表', atAll: true })
+
 // 媒体：预上传资产（bot.media.* 返回值）或输入源
 await bot.msg.send(chatId, { type: 'image', image: imgAsset })
 await bot.msg.send(chatId, { type: 'image', image: 'https://example.com/cat.jpg' })
@@ -24,7 +27,13 @@ await bot.msg.send(chatId, { type: 'image', image: 'https://example.com/cat.jpg'
 | chatId | string | - | 会话标识 |
 | body | object | - | 统一消息体；收侧消息对象可直接回传 |
 
-`body.type` 可能值：`text` `image` `video` `audio` `file` `emoji` `link` `share` `user` `forward` `card` `location` `groupCard` `chains` `unknown`，各类型载荷见[消息类型](/guide/message)。
+`body.type` 可能值：`text` `image` `video` `audio` `file` `emoji` `link` `share` `userCard` `forward` `card` `location` `groupCard` `chains` `unknown`，各类型载荷见[消息类型](/guide/message)。
+
+`bot.msg.send(chatId, body, opts)` 第三参可选：
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| clientMessageId | string | 客户端消息 id；同会话重复使用被服务端幂等去重 |
 
 ::: warning 文件消息兼容性
 文件消息的消息类型字段官方未公开，部分客户端版本接收端可能渲染异常（如无法预览）；文本 / 图片 / 视频不受影响。

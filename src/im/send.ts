@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import protobuf from 'protobufjs'
 import {
+  buildAtAllTextContent,
   buildImageContent,
   buildVideoContent,
   buildFileContent,
@@ -22,6 +23,7 @@ import type {
   SendMessageItem,
   SendMessageReference,
   SendMessageResponse,
+  SendBodyOptions,
   ForwardNode,
   ShareItem,
   MsgBody,
@@ -76,14 +78,19 @@ export async function send (
         messageType: options.messageType ?? 7,
         clientMessageId,
         ext: {
-          's:mentioned_users': '',
+          // @所有人 值填 "0"（HAR 权威样本：web 客户端 @all 时 ext 含 s:mentioned_users="0"），普通消息留空
+          's:mentioned_users': options.atAll ? '0' : '',
           's:client_message_id': clientMessageId,
           's:stime': `${timestamp}.${String(timestamp % 10_000).padStart(4, '0')}`,
         },
         ...(options.reference ? { refMsgInfo: encodeReference(options.reference) } : {}),
-        ...(options.mentionedUsers?.length
-          ? { mentionedUsers: options.mentionedUsers.map(uid => LONG.fromString(uid)) }
-          : {}),
+        // @所有人 必须显式写 f9 mentioned_users=[0]（HAR 权威样本：真 @all 请求 SendMessageRequest.f9=0；
+        // 0 是「全体」约定，缺省则服务端不识别为真 @all，ext 的 s:mentioned_users 只是透传标记）
+        ...(options.atAll
+          ? { mentionedUsers: [LONG.fromString('0')] }
+          : options.mentionedUsers?.length
+            ? { mentionedUsers: options.mentionedUsers.map(uid => LONG.fromString(uid)) }
+            : {}),
       },
     },
     ctx.deviceId,
@@ -139,10 +146,21 @@ export async function sendBody (
   ctx: SendContext,
   address: ConversationAddress,
   body: MsgBody,
-  opts?: { clientMessageId?: string },
+  opts?: SendBodyOptions,
 ): Promise<SendMessageResponse> {
   switch (body.type) {
     case 'text': {
+      if (body.atAll) {
+        // @所有人：content 前置「@所有人 」占位（infoType=4 mention_label 元数据），
+        // ext 写 s:mentioned_users="0"（HAR 权威样本）；与 ats 同给时 atAll 优先。
+        return send(ctx, {
+          ...address,
+          content: buildAtAllTextContent(body.text),
+          messageType: 7,
+          atAll: true,
+          clientMessageId: opts?.clientMessageId,
+        })
+      }
       const { content, mentions } = textWithAts(body.text, body.ats, address.conversationId)
       return send(ctx, {
         ...address,

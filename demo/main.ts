@@ -145,7 +145,7 @@ bot.on('message', async msg => {
       ...(msg.share.coverUrl ? { coverUrl: msg.share.coverUrl } : {}),
     }
   }
-  if (msg.type === 'user') lastUser = msg.user
+  if (msg.type === 'userCard') lastUser = msg.user
   if (msg.type === 'card') lastCard = msg.card
   if (msg.type === 'groupCard') lastGroupCard = msg.groupCard
   if (msg.type === 'location') lastLocation = msg.location
@@ -214,7 +214,7 @@ log.info(`bot 已启动 uid=${bot.id}，Ctrl+C 退出`)
 // 冒烟：拉好友/群列表验证 HTTP 通道
 const [frds, grps] = [await bot.frd.list(), await bot.grp.list()]
 log.info(`好友 ${frds.length} 个，群 ${grps.length} 个`)
-log.info('命令: ping /echo x /at /img /video /videop /vurl /vdl /file /reply /react /recall /edit /forward /read /share [itemId] /user /checkin /locate /typing on|off /call /thread')
+log.info('命令: ping /echo x /at /atall /img /video /videop /vurl /vdl /file /reply /react /recall /edit /forward /read /share [itemId] /user /checkin /locate /typing on|off /call /thread')
 
 const friend = frds[0]
 if (friend) log.info(`示例 chatId: ${friend.chatId}`)
@@ -229,9 +229,15 @@ async function cmd (msg: BotMessage): Promise<void> {
     if (sent.clientMessageId) {
       lastSent = { chatId: msg.chatId, clientMessageId: sent.clientMessageId, serverMessageId: sent.serverMessageId }
     }
-  } else if (text.startsWith('/at')) {
+  } else if (text.startsWith('/atall')) {
+    // @所有人 发送（atAll：content 前置「@所有人 」+ mention_label 元数据，需群主/管理员权限）
+    // 顺序敏感：必须在本分支消费，否则被下方 startsWith('/at') 的 /at 分支抢先（@all 变成单用户 @）
+    const tail = text.slice(6).trim()
+    await bot.msg.send(msg.chatId, { type: 'text', text: tail, atAll: true })
+  } else if (text === '/at' || text.startsWith('/at ')) {
     // @ 提及发送（ats 渲染「@昵称 」占位 + richTextInfos 含 con_id，@ 当前发送者）
     // 纯艾特：text 留空即可（content 仍含「@昵称 」占位，客户端有显示锚点）；`/at 文字` 附带正文
+    // 收紧为精确前缀，避免吃掉 /atall 等更长命令
     const tail = text.slice(3).trim()
     await bot.msg.send(msg.chatId, { type: 'text', text: tail, ats: [{ uid: msg.senderUid }] })
   } else if (text === '/img') {
@@ -333,7 +339,7 @@ async function cmd (msg: BotMessage): Promise<void> {
       await bot.msg.send(msg.chatId, textMsg('先给我发一张用户名片'))
       return
     }
-    const result = await bot.msg.send(msg.chatId, { type: 'user', user: lastUser })
+    const result = await bot.msg.send(msg.chatId, { type: 'userCard', user: lastUser })
     await bot.msg.send(msg.chatId, textMsg(
       result.statusCode === 0
         ? `名片已发送 ${lastUser.name ?? lastUser.uid} msg=${result.serverMessageId ?? '-'}`

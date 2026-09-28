@@ -39,6 +39,7 @@ import type {
   RequestEvent,
   RecallItem,
   RecallResult,
+  SendBodyOptions,
   SendMessageResponse,
   StatusEvent,
   StrangerInfo,
@@ -232,7 +233,7 @@ export class Im {
   }
 
   /** 统一发送：type 判别一条消息（text/at 合 messageType=7，媒体/卡片各成一条），与收侧结构同构 */
-  sendBody (address: ConversationAddress, body: MsgBody, opts?: { clientMessageId?: string }): Promise<SendMessageResponse> {
+  sendBody (address: ConversationAddress, body: MsgBody, opts?: SendBodyOptions): Promise<SendMessageResponse> {
     return send.sendBody(this.sendCtx(), address, body, opts)
   }
 

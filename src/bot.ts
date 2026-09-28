@@ -13,6 +13,7 @@ import type {
   PushMessage,
   ReadEvent,
   RecallItem,
+  SendBodyOptions,
   StatusEvent,
   VoipCallEvent,
 } from './im/types.js'
@@ -82,8 +83,8 @@ class Msg {
   constructor (private readonly bot: Bot) {}
 
   /** 统一发送：type 判别一条消息；媒体输入源自动上传，收侧消息对象可直接回传 */
-  async send (chatId: string, body: MsgBody): Promise<ReturnType<Im['sendBody']>> {
-    return this.bot.im().sendBody(toAddress(chatId), await this.prepare(body))
+  async send (chatId: string, body: MsgBody, opts?: SendBodyOptions): Promise<ReturnType<Im['sendBody']>> {
+    return this.bot.im().sendBody(toAddress(chatId), await this.prepare(body), opts)
   }
 
   /** 编辑已发送消息——不支持：HTTP 复用原 cmid 会被服务端幂等去重（返回原消息 id，内容不更新），

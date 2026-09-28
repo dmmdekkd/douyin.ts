@@ -1,4 +1,4 @@
-import { decodeWire, decodeWireTree, type WireField } from './protocol/index.js'
+import { decodeWire, decodeWireTree, encodeVarint, type WireField } from './protocol/index.js'
 import type {
   GroupMemberDecreaseSource,
   GroupMemberIncreaseSource,
@@ -51,10 +51,27 @@ export function messageChildren (fields: WireField[], number: number): WireField
     .map((field) => field.value)
 }
 
+/** 还原客户端 fixed64 打包的短键：f1 嵌套 message 的子字段字节顺序拼成 ASCII（如 :group_co 补全） */
+function keyFromNested (fields: WireField[], number: number): string | undefined {
+  const nested = fields.find(
+    (field): field is Extract<WireField, { type: 'message' }> =>
+      field.field === number && field.type === 'message',
+  )?.value
+  if (!nested?.length) return undefined
+  const parts: Buffer[] = []
+  for (const field of nested) {
+    if (field.type === 'fixed64' || field.type === 'fixed32') parts.push(Buffer.from(field.value))
+    else if (field.type === 'varint') parts.push(encodeVarint(field.value))
+  }
+  const text = Buffer.concat(parts).toString('utf8')
+  return text || undefined
+}
+
 export function collectKeyValues (fields: WireField[], number: number): Map<string, string> {
   const values = new Map<string, string>()
   for (const child of messageChildren(fields, number)) {
-    const key = fieldString(child, 1)
+    // 短键（≤8 ASCII 字符，如 :group_comment 拆分打包）客户端按 fixed64/fixed32 字面量打包，f1 非 string，需还原成键
+    const key = fieldString(child, 1) ?? keyFromNested(child, 1)
     const value = fieldString(child, 2)
     if (key && value != null) values.set(key, value)
   }

@@ -16,7 +16,7 @@ bot.on('message', msg => {
 
 | 字段 | 类型 | 可能的值 | 说明 |
 |------|------|----------|------|
-| type | string | `text` `image` `video` `audio` `file` `emoji` `link` `share` `user` `forward` `card` `location` `groupCard` `chains` `unknown` | 消息类型 |
+| type | string | `text` `image` `video` `audio` `file` `emoji` `link` `share` `userCard` `forward` `card` `location` `groupCard` `chains` `unknown` | 消息类型 |
 | text | string | - | 展示文本，一律可读 |
 | chatId | string | - | 会话标识，可直接传给 `bot.msg.*` / `bot.grp.*` |
 | senderNickname | string | - | 发送者昵称，群昵称优先 |

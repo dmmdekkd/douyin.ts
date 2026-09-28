@@ -130,7 +130,14 @@ export interface SendMessageItem {
   reference?: SendMessageReference
   /** @ 提及的用户 uid（sendMessage 字段 9） */
   mentionedUsers?: string[]
+  /** @所有人 发送：ext 写 s:mentioned_users="0"（HAR 权威样本：web 客户端 @all 时值填 "0"） */
+  atAll?: boolean
   /** 客户端消息 id；同会话重复使用会被服务端幂等去重（返回原消息 id） */
+  clientMessageId?: string
+}
+
+/** sendBody 附加选项 */
+export interface SendBodyOptions {
   clientMessageId?: string
 }
 
@@ -598,7 +605,7 @@ export type FileSend =
 /**
  * 消息统一结构基：type 判别类型，载荷字段平铺，收/发同构。
  * 仅媒体载荷按方向收窄（S='send' 可给输入源由 send 自动上传；S='recv' 恒为资产/资源形态可直接回传）。
- * text 为展示文本，一律可读；@ 提及并入 text 的 ats（含纯 @ 消息）。
+ * text 为展示文本，一律可读；@ 提及并入 text 的 ats（含纯 @ 消息），@所有人 用 atAll（占位自动前置）。
  */
 /** 接龙条目录入项（chains_entry_list[i]：e_c_u=提交者 uid、e_t=文本） */
 export interface ChainsEntry {
@@ -639,7 +646,7 @@ export interface Card {
 }
 
 type RawBody<S extends 'send' | 'recv'> =
-  | { type: 'text'; text: string; ats?: { uid: string; nickname?: string }[] }
+  | { type: 'text'; text: string; ats?: { uid: string; nickname?: string }[]; atAll?: boolean }
   | { type: 'image'; text?: string; image: S extends 'send' ? ImageResource | MediaInput : ImageResource }
   | { type: 'video'; text?: string; video: S extends 'send' ? VideoResource | VideoSend : VideoResource }
   | { type: 'file'; text?: string; file: S extends 'send' ? FileAsset | FileSend : FileAsset }
