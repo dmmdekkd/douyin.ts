@@ -1,14 +1,12 @@
 import { decodeWire, decodeWireTree, type WireField } from './protocol/index.js'
-import { fieldString, collectKeyValues } from './notice.js'
+import { fieldString, collectKeyValues, protectBigInt } from './notice.js'
 import { parseBody } from './content.js'
 import type { GroupMemberChange, GroupMemberUpdate, InboundMessage, NoticeEvent, PushMessage, ReadEvent, StatusEvent, StatusExtItem, VoipCallEvent } from './types.js'
 
-/** 解析推送 content JSON；非法返回 undefined（服务端偶发非 JSON 变体）；protectBigInt 保 16+ 位数字精度（uid/msgId） */
-function parseContent (text: string, protectBigInt = false): Record<string, unknown> | undefined {
+/** 解析推送 content JSON；非法返回 undefined（服务端偶发非 JSON 变体）；protect 时保 16+ 位数字精度（uid/msgId，含数组内裸数字） */
+function parseContent (text: string, protect = false): Record<string, unknown> | undefined {
   try {
-    return JSON.parse(
-      protectBigInt ? text.replace(/"(\w+)"\s*:\s*(\d{16,})/g, '"$1":"$2"') : text,
-    ) as Record<string, unknown>
+    return JSON.parse(protect ? protectBigInt(text) : text) as Record<string, unknown>
   } catch {
     return undefined
   }

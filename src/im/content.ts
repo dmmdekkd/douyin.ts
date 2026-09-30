@@ -404,7 +404,8 @@ function systemMessageText (value: Record<string, unknown>): string {
 
 /**
  * 解析 wire content 为收侧消息体（RecvBody）：type 判别 + 载荷字段平铺，媒体恒为资产/资源形态。
- * text 恒为可读展示文本（含媒体占位）；@ 提及并入 text 的 ats（纯 @ 消息 text 保留原文）。
+ * text 为可读展示文本（媒体字段无文案时保持原值，不再内填「[视频]」等占位，
+ * 拼接展示交由外部按 type 处理，避免外部再追加时重复）；@ 提及并入 text 的 ats（纯 @ 消息 text 保留原文）。
  */
 export function parseBody (content: string, messageType?: number): RecvBody {
   let value: Record<string, unknown>
@@ -421,13 +422,13 @@ export function parseBody (content: string, messageType?: number): RecvBody {
   if (messageType === 17) {
     const resource = objectValue(value['resource_url'])
     return {
-      type: 'audio', text: text || '[语音]',
+      type: 'audio', text,
       audio: { urls: stringArray(resource?.['url_list']), uri: String(resource?.['uri'] ?? '') },
     }
   }
   if (messageType === 6 || messageType === 150) {
     return {
-      type: 'file', text: String(value['name'] ?? '') || '[文件]',
+      type: 'file', text: String(value['name'] ?? ''),
       file: { uri: String(value['uri'] ?? ''), skey: String(value['skey'] ?? ''), md5: String(value['md5'] ?? ''), name: String(value['name'] ?? ''), dataSize: Number(value['data_size'] ?? 0) },
     }
   }
@@ -468,7 +469,7 @@ export function parseBody (content: string, messageType?: number): RecvBody {
     const cover = objectValue(value['cover_url'])
     const coverUrl = cover ? stringArray(cover['url_list'])[0] ?? String(cover['uri'] ?? '') : ''
     return {
-      type: 'share', text: text || title || '[分享作品]',
+      type: 'share', text: text || title,
       share: {
         itemId: String(value['itemId'] ?? ''),
         title,
@@ -498,14 +499,14 @@ export function parseBody (content: string, messageType?: number): RecvBody {
         ...(ref?.['create_time'] ? { createTime: Number(ref['create_time']) } : {}),
       })
     }
-    return { type: 'forward', text: '[合并转发]', nodes }
+    return { type: 'forward', text: '', nodes }
   }
   // 接龙（群内多人接力登记项）：push_detail 即官方展示文本，describe 为标题
   if (messageType === 152) {
     const items = Array.isArray(value['chains_entry_list']) ? value['chains_entry_list'] : []
     return {
       type: 'chains',
-      text: String(value['push_detail'] ?? value['chains_description'] ?? '[接龙]'),
+      text: String(value['push_detail'] ?? value['chains_description'] ?? ''),
       chains: {
         id: String(value['chains_id'] ?? ''),
         description: String(value['chains_description'] ?? ''),
@@ -562,7 +563,7 @@ export function parseBody (content: string, messageType?: number): RecvBody {
     const cover = objectValue(objectValue(value['cover_info'])?.['resource_url'])
     return {
       type: 'location',
-      text: String(value['poi_name'] ?? value['poi_address'] ?? '') || '[位置]',
+      text: String(value['poi_name'] ?? value['poi_address'] ?? ''),
       location: {
         name: String(value['poi_name'] ?? ''),
         address: String(value['poi_address'] ?? ''),
@@ -581,7 +582,7 @@ export function parseBody (content: string, messageType?: number): RecvBody {
     const icon = objectValue(card?.['group_icon'])
     return {
       type: 'groupCard',
-      text: String(value['title'] ?? value['push_detail'] ?? '[群聊邀请]'),
+      text: String(value['title'] ?? value['push_detail'] ?? ''),
       groupCard: {
         conversationId: String(card?.['conversation_id'] ?? ''),
         groupName: String(card?.['group_name'] ?? ''),
@@ -607,7 +608,7 @@ export function parseBody (content: string, messageType?: number): RecvBody {
     return { type: 'unknown', text, raw: value }
   }
   const image = imageFromObject(value)
-  if (image) return { type: 'image', text: text || '[图片]', image }
+  if (image) return { type: 'image', text, image }
 
   const videoValue = objectValue(value['video'])
   if (videoValue) {
@@ -623,12 +624,12 @@ export function parseBody (content: string, messageType?: number): RecvBody {
       ...(poster ? { poster } : {}),
       ...(value['inline_pic'] ? { inlinePic: String(value['inline_pic']) } : {}),
     }
-    return { type: 'video', text: text || '[视频]', video }
+    return { type: 'video', text, video }
   }
 
   const emojiUrl = objectValue(value['url'])
   const url = String(emojiUrl?.['uri'] ?? stringArray(emojiUrl?.['url_list'])[0] ?? '')
-  if (aweType === 507 || url) return { type: 'emoji', text: text || '[表情]', emoji: url }
+  if (aweType === 507 || url) return { type: 'emoji', text, emoji: url }
   if (text || 'text' in value) {
     const mentions = mentionsFromValue(value)
     // 有 @ 提及时按原文位置剥离「@xxx 」；纯 @ 消息保留原文（无剥离文本）

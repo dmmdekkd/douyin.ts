@@ -24,6 +24,8 @@ const GROUP_MEMBER_INCREASE_TYPES = new Map<number, GroupMemberIncreaseSource>([
   [100112, 'activity'],
   [100113, 'face-to-face'],
   [100114, 'circle'],
+  // 「{1}通过{0}分享的群二维码加入了群聊」（分享者分享二维码，入群者扫码）
+  [100128, 'qrcode'],
   // 「你邀请{1}加入了群聊」/「{0}邀请你加入了群聊」两种视角同型，均为邀请入群
   [100140, 'invite'],
 ])
@@ -101,10 +103,15 @@ function firstString (record: Record<string, unknown> | undefined, keys: string[
   return undefined
 }
 
+/** 16+ 位整数（uid/conversation_id）超出 Number 精度，包成字符串再 parse；
+ * 覆盖对象键值、数组元素与首元素，字符串内的数字（已带引号）不重复包装 */
+export function protectBigInt (text: string): string {
+  return text.replace(/(?<![\d"])(\d{16,})(?![\d"])/g, '"$1"')
+}
+
 function commandPayload (content: string): Record<string, unknown> | undefined {
   try {
-    // 16+ 位整数（uid/conversation_id）超出 Number 精度，包成字符串再 parse（同 recv.ts parseContent）
-    return asRecord(JSON.parse(content.replace(/"(\w+)"\s*:\s*(\d{16,})/g, '"$1":"$2"')))
+    return asRecord(JSON.parse(protectBigInt(content)))
   } catch {
     return undefined
   }
@@ -253,6 +260,38 @@ function groupMemberDiffFromPush (push: PushMessage): NoticeEvent | undefined {
   return blockStatus === 1
     ? { type: 'group.member-decrease', ...base, source: 'kick' as const }
     : { type: 'group.member-increase', ...base, source: 'rejoin' as const }
+}
+
+function uidList (value: unknown): NoticeUser[] {
+  if (!Array.isArray(value)) return []
+  const users: NoticeUser[] = []
+  for (const item of value) {
+    const text = item == null ? '' : String(item)
+    if (text && /^\d+$/.test(text)) users.push({ uid: text })
+  }
+  return users
+}
+
+/** messageType=50001 command_type=7 群成员增/删同步帧 → notice；
+ * 加群/退群除 1001 aweType 系统消息、50011 diff 外还走这条同步通道（如退群常只发此帧），
+ * 帧内无来源与操作者信息，source 记为 sync，操作者即推送发送方 */
+export function groupMemberChangeFromCommand (push: PushMessage): NoticeEvent | undefined {
+  if (push.conversationType !== 2) return undefined
+  const payload = commandPayload(push.content)
+  if (Number(payload?.['command_type']) !== 7) return undefined
+  const added = uidList(payload?.['added_participant'])
+  const removed = uidList(payload?.['removed_participant'])
+  if (added.length === 0 && removed.length === 0) return undefined
+  const base = {
+    conversationId: push.conversationId,
+    conversationShortId: push.conversationShortId || push.conversationId,
+    conversationType: 2 as const,
+    operators: push.senderUid ? [{ uid: push.senderUid }] : [],
+    raw: push.raw,
+  }
+  // 罕见帧同时增删（多次操作合并）时优先透出剔除，加入侧由 status.memberChange 完整保留
+  if (removed.length > 0) return { type: 'group.member-decrease', ...base, source: 'sync' as const, members: removed }
+  return { type: 'group.member-increase', ...base, source: 'sync' as const, members: added }
 }
 
 /** 把 cmd500 中的协议命令消息与用户可见消息分流为 Notice 或 Request。 */

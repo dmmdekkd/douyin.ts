@@ -309,8 +309,10 @@ export type GroupMemberIncreaseSource =
   | 'circle'
   /** 被移出成员重新入群（50011 unblock diff 通道） */
   | 'rejoin'
+  /** 50001 command_type=7 成员变更帧（增删成员同步，无来源信息） */
+  | 'sync'
 
-export type GroupMemberDecreaseSource = 'kick' | 'leave'
+export type GroupMemberDecreaseSource = 'kick' | 'leave' | 'sync'
 
 export interface NoticeUser {
   uid: string
