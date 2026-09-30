@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2](https://github.com/dmmdekkd/douyin.ts/compare/v0.6.1...v0.6.2) (2026-09-30)
+
+
+### Features
+
+* 新增群成员变更同步通道及优化内容解析逻辑 ([f47a668](https://github.com/dmmdekkd/douyin.ts/commit/f47a6689aec3cbda283eacadbcd62323bc9b0650))
+
 ## [0.6.1](https://github.com/dmmdekkd/douyin.ts/compare/v0.6.0...v0.6.1) (2026-09-28)
 
 
