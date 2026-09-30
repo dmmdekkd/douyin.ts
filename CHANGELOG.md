@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.1](https://github.com/dmmdekkd/douyin.ts/compare/v0.6.0...v0.6.1) (2026-09-28)
+
+
+### Features
+
+* 支持群系统消息分流与群解散通知 ([141d2b9](https://github.com/dmmdekkd/douyin.ts/commit/141d2b9321abecf8701f7f72d83fb887d5b63944))
+* 新增群分享校验接口及相关类型定义 ([d409ecb](https://github.com/dmmdekkd/douyin.ts/commit/d409ecb89cfd31f6da2ae0ccfb9a8fb7ff6a9515))
+
 ## [0.6.0](https://github.com/dmmdekkd/douyin.ts/compare/v0.5.0...v0.6.0) (2026-09-28)
 
 
