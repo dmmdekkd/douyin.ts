@@ -109,6 +109,11 @@ export interface LoginOpts {
   onVerifyUrl?: (url: string) => void
   /** 触发二次验证时回调:返回短信验证码或密码;未提供则登录失败 */
   onMfa?: (info: MfaInfo) => string | Promise<string>
+  /**
+   * 二次验证方式拉取:触发时回调服务端全部可用方式,返回要使用的 verify_way 名称;
+   * 返回 undefined 走内置优先级(安全手机短信 > 绑定手机短信 > 上行短信 > 密码)
+   */
+  onVerifyWays?: (ways: VerifyWay[]) => string | undefined | Promise<string | undefined>
   userAgent?: string
   log?: Log
 }
@@ -308,9 +313,15 @@ async function mfa (http: Http, data: CheckData, opts: LoginOpts): Promise<Recor
     biz_params: data.biz_params,
     common_params: data.common_params,
   }
-  const way = selectWay(data)
+  const ways = data.verify_ways ?? []
+  // 方式选择权交给调用方:回调返回 undefined 或未提供回调时按内置优先级
+  const chosen = await opts.onVerifyWays?.(ways)
+  const way = chosen == null
+    ? selectWay(data)
+    : ways.find(w => w.verify_way === chosen)
   if (!way?.verify_way) {
-    const list = (data.verify_ways ?? []).map(w => w.verify_way).filter(Boolean).join(', ')
+    if (chosen != null) throw new Error(`指定的验证方式 ${chosen} 不在可用列表(${ways.map(w => w.verify_way).filter(Boolean).join(', ') || '无'})`)
+    const list = ways.map(w => w.verify_way).filter(Boolean).join(', ')
     throw new Error(`无可支持的验证方式(服务端可选:${list || '无'});请在抖音 App 完成该次身份验证后重试`)
   }
   if (way.verify_way === 'assist_mobile_up_sms_verify') {

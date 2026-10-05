@@ -21,10 +21,33 @@ const session = await login({
 | onStatus | `(s: string) => void` | 扫码状态（new / scanned / verified 等） |
 | onVerifyUrl | `(url: string) => void` | 需本地安全验证（滑块等）时回调验证页地址 |
 | onMfa | `(info: MfaInfo) => string \| Promise<string>` | 二次验证，返回短信验证码或密码 |
+| onVerifyWays | `(ways: VerifyWay[]) => string \| undefined` | 二次验证方式拉取，返回要使用的方式名；缺省按内置优先级 |
 | userAgent | `string` | 自定义 UA |
 | log | `Log` | 自定义日志 |
 
 `MfaInfo.kind`：`sms`（附 `maskedMobile`）或 `password`。
+
+### 二次验证方式
+
+触发二次验证时 `onVerifyWays` 回调服务端全部可用方式（`VerifyWay[]`），返回想用的 `verify_way` 名称即按其执行；返回 `undefined`（或不提供回调）走内置优先级：安全手机短信 > 绑定手机短信 > 上行短信 > 登录密码。
+
+| verify_way | 说明 |
+|------------|------|
+| `assist_mobile_sms_verify` | 安全手机短信验证码（`mobile` 为脱敏号码） |
+| `mobile_sms_verify` | 绑定手机短信验证码 |
+| `assist_mobile_up_sms_verify` | 上行短信：用安全手机发指定短信（`sms_content` → `channel_mobile`），免输入 |
+| `pwd_verify` | 登录密码验证 |
+
+选择免输入的上行短信可避开 `onMfa` 交互：
+
+```ts
+const session = await login({
+  onVerifyWays: ways => {
+    // 展示给用户选择,或固定挑一种
+    return ways.find(w => w.verify_way === 'assist_mobile_up_sms_verify')?.verify_way
+  },
+})
+```
 
 ## Session
 
