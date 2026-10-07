@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.3](https://github.com/dmmdekkd/douyin.ts/compare/v0.6.2...v0.6.3) (2026-10-05)
+
+
+### Features
+
+* **login:** add onVerifyWays callback for customizing second verification method ([1a2f979](https://github.com/dmmdekkd/douyin.ts/commit/1a2f9794e4516d721f9814dcc355843582997227))
+
 ## [0.6.2](https://github.com/dmmdekkd/douyin.ts/compare/v0.6.1...v0.6.2) (2026-09-30)
 
 
