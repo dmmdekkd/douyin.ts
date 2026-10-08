@@ -411,83 +411,111 @@ export async function recall (
  * 会话列表 / 历史消息
  * ------------------------------------------------------------------------- */
 
-/** cmd=2006, /v1/conversation/list — Desktop 群聊元数据列表。 */
+/** cmd=2006, /v1/conversation/list — Desktop 群聊元数据列表,循环翻页拉全量 */
 export async function listConversations (
   ctx: InboxContext,
   options: InboxListOptions = {},
 ): Promise<GroupInfo[]> {
-  const decoded = await ctx.transport.sendCookieProto(
-    2006,
-    0,
-    '/v1/conversation/list',
-    {
-      conversationList: {
-        listType: 1,
-        cursor: options.cursor ?? 0,
-        sortType: 2,
-        limit: options.count ?? 20,
+  const all: GroupInfo[] = []
+  let cursor = options.cursor ?? 0
+  const seen = new Set<number>()
+  for (;;) {
+    // cursor 不推进即停止,防服务端翻页字段缺失/异常导致的死循环
+    if (seen.has(cursor)) break
+    seen.add(cursor)
+    const decoded = await ctx.transport.sendCookieProto(
+      2006,
+      0,
+      '/v1/conversation/list',
+      {
+        conversationList: {
+          listType: 1,
+          cursor,
+          sortType: 2,
+          limit: options.count ?? 20,
+        },
       },
-    },
-    ctx.deviceId,
-  )
-  const statusCode = Number(decoded['statusCode'] ?? 0)
-  if (statusCode !== 0) throw new Error(`listConversations failed: ${String(decoded['errorDesc'] ?? '')} (code=${statusCode})`)
-  const body = decoded['body'] as Record<string, unknown> | null
-  const list = body?.['conversationList'] as { conversations?: Array<Record<string, unknown>> } | undefined
-  const conversations = list?.conversations ?? []
-  return conversations.map(mapProtoConversationListItem)
+      ctx.deviceId,
+    )
+    const statusCode = Number(decoded['statusCode'] ?? 0)
+    if (statusCode !== 0) throw new Error(`listConversations failed: ${String(decoded['errorDesc'] ?? '')} (code=${statusCode})`)
+    const body = decoded['body'] as Record<string, unknown> | null
+    const list = body?.['conversationList'] as {
+      conversations?: Array<Record<string, unknown>>
+      hasMore?: boolean | number
+      cursor?: string | number | { toString (): string }
+    } | undefined
+    const conversations = list?.conversations ?? []
+    all.push(...conversations.map(mapProtoConversationListItem))
+    if (!list?.hasMore || Number(list.hasMore) === 0) break
+    const next = Number(String(list.cursor ?? ''))
+    if (!Number.isFinite(next) || next === 0 || next === cursor) break
+    cursor = next
+  }
+  return all
 }
 
 function sleep (ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
-/** Desktop Cookie cmd=203。实测 inboxType=1 返回群聊及普通私信；不依赖 Creator IM token。 */
+/** Desktop Cookie cmd=203。实测 inboxType=1 返回群聊及普通私信;不依赖 Creator IM token。循环翻页拉全量。 */
 export async function listCookieThreads (
   ctx: InboxContext,
   options: InboxListOptions & { inboxType?: number } = {},
 ): Promise<PrivateThread[]> {
   const limit = options.count ?? 20
-  const cursor = options.cursor ?? 0
-  let lastError: unknown
-  // 服务端偶发 StatusCodeRPCTimeout(500)，重试 2 次缓解
-  for (let attempt = 0; attempt < 3; attempt++) {
-    let decoded: Record<string, unknown>
-    try {
-      decoded = await ctx.transport.sendCookieProto(
-        203,
-        options.inboxType ?? 1,
-        '/v2/message/get_by_user_init',
-        { inbox: { convLimit: limit, msgLimit: limit, cursor } },
-        ctx.deviceId,
-      )
-    } catch (err) {
-      lastError = err
-      await sleep(1000)
-      continue
+  let cursor = options.cursor ?? 0
+  const seenCursors = new Set<number>()
+  const threads: PrivateThread[] = []
+  for (;;) {
+    // cursor 不推进即停止,防服务端翻页字段缺失/异常导致的死循环
+    if (seenCursors.has(cursor)) break
+    seenCursors.add(cursor)
+    let lastError: unknown
+    let decoded: Record<string, unknown> | undefined
+    // 服务端偶发 StatusCodeRPCTimeout(500)，重试 2 次缓解
+    for (let attempt = 0; attempt < 3 && !decoded; attempt++) {
+      try {
+        const res = await ctx.transport.sendCookieProto(
+          203,
+          options.inboxType ?? 1,
+          '/v2/message/get_by_user_init',
+          { inbox: { convLimit: limit, msgLimit: limit, cursor } },
+          ctx.deviceId,
+        )
+        if (Number(res['statusCode'] ?? 0) !== 0) {
+          lastError = new Error(`listCookieThreads failed: ${String(res['errorDesc'] ?? '')} (code=${Number(res['statusCode'])})`)
+          await sleep(1000)
+          continue
+        }
+        decoded = res
+      } catch (err) {
+        lastError = err
+        await sleep(1000)
+      }
     }
-    const statusCode = Number(decoded['statusCode'] ?? 0)
-    if (statusCode !== 0) {
-      lastError = new Error(`listCookieThreads failed: ${String(decoded['errorDesc'] ?? '')} (code=${statusCode})`)
-      await sleep(1000)
-      continue
-    }
+    if (!decoded) throw lastError instanceof Error ? lastError : new Error('listCookieThreads failed')
     const body = decoded['body'] as Record<string, unknown> | null
     const inbox = body?.['inbox'] as {
       messages?: unknown[]
       conversations?: unknown[]
+      hasMore?: boolean | number
+      cursor?: string | number | { toString (): string }
     } | null
     const rawMessages = (inbox?.messages ?? []) as Record<string, unknown>[]
     const rawConversations = (inbox?.conversations ?? []) as Record<string, unknown>[]
-    const threads = rawConversations.length > 0
+    threads.push(...(rawConversations.length > 0
       ? rawConversations.map((conversation) =>
         mapProtoConversationMeta(conversation, rawMessages, ctx.platformUid),
       )
-      : dedupeThreads(rawMessages.map((message) => mapProtoConversation(message, ctx.platformUid)))
-    return dedupeThreads(threads)
+      : rawMessages.map((message) => mapProtoConversation(message, ctx.platformUid))))
+    if (!inbox?.hasMore || Number(inbox.hasMore) === 0) break
+    const next = Number(String(inbox.cursor ?? ''))
+    if (!Number.isFinite(next) || next === 0 || next === cursor) break
+    cursor = next
   }
-
-  throw lastError instanceof Error ? lastError : new Error('listCookieThreads failed')
+  return dedupeThreads(threads)
 }
 
 /** cmd=2047, /v1/message/get_recent_stranger_message — 陌生人消息（Desktop Cookie 通道；接口无分页字段） */

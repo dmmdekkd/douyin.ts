@@ -4,7 +4,12 @@
 
 ## 群列表
 
-`bot.grp.list()` — 获取全部群。
+`bot.grp.list(options?)` — 获取群列表，缺省自动翻页拉全量。
+
+| options | 类型 | 默认 | 说明 |
+|---------|------|------|------|
+| cursor | number | `0` | 起始翻页游标 |
+| count | number | `20` | 单页条数 |
 
 ```ts
 const groups = await bot.grp.list()

@@ -32,6 +32,7 @@ import { createDevice } from './device.js'
 import { self } from './user.js'
 import type { SelfInfo } from './user.js'
 import type { FriendRequestStatus } from './im/index.js'
+import type { RelationOptions, MutualOptions } from './im/index.js'
 
 /** chatId：`type:shortId:conversationId` 的不透明串，内部解析为 address，格式不承诺稳定 */
 export function chatIdOf (src: PushMessage | { conversationId: string; conversationShortId: string; conversationType: number }): string {
@@ -278,8 +279,9 @@ class Sticker {
 class Frd {
   constructor (private readonly bot: Bot) {}
 
-  async list (): Promise<Array<{ chatId: string } & Awaited<ReturnType<Im['getFriendList']>>[number]>> {
-    const list = await this.bot.im().getFriendList()
+  /** list 支持分页:cursor 起始游标,count 单页条数;缺省自动翻页拉全量 */
+  async list (options: { cursor?: number; count?: number } = {}): Promise<Array<{ chatId: string } & Awaited<ReturnType<Im['getFriendList']>>[number]>> {
+    const list = await this.bot.im().getFriendList(options)
     this.bot.rememberNicks(list)
     return list.map(f => ({ chatId: chatIdOf({ ...f, conversationType: 1 }), ...f }))
   }
@@ -297,13 +299,29 @@ class Frd {
   reject (uid: string): ReturnType<Im['rejectFriend']> {
     return this.bot.im().rejectFriend(uid)
   }
+
+  /** 关注列表；uid 缺省登录账号，翻页传上页返回的 offset/maxTime */
+  follows (options?: RelationOptions): ReturnType<Im['followUsers']> {
+    return this.bot.im().followUsers(options)
+  }
+
+  /** 粉丝列表 */
+  fans (options?: RelationOptions): ReturnType<Im['fanUsers']> {
+    return this.bot.im().fanUsers(options)
+  }
+
+  /** 互关列表（自动翻页，limit 控制上限） */
+  mutual (options?: MutualOptions): ReturnType<Im['mutualUsers']> {
+    return this.bot.im().mutualUsers(options)
+  }
 }
 
 class Grp {
   constructor (private readonly bot: Bot) {}
 
-  async list (): Promise<Array<{ chatId: string } & Awaited<ReturnType<Im['getGroupList']>>[number]>> {
-    const list = await this.bot.im().getGroupList()
+  /** list 支持分页:cursor 起始游标,count 单页条数;缺省自动翻页拉全量 */
+  async list (options: { cursor?: number; count?: number } = {}): Promise<Array<{ chatId: string } & Awaited<ReturnType<Im['getGroupList']>>[number]>> {
+    const list = await this.bot.im().getGroupList(options)
     return list.map(g => ({ chatId: chatIdOf(g), ...g }))
   }
 

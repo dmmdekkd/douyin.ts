@@ -18,6 +18,8 @@ import type { EmojiInfo } from './emoji.js'
 import * as resource from './resource.js'
 import type { StickerCollectResult, StickerPage } from './resource.js'
 import * as share from './share.js'
+import * as relation from './relation.js'
+import type { RelationOptions, MutualOptions } from './relation.js'
 import type { EncryptedVideoUrl } from './media.js'
 import { createLog } from '../log.js'
 import type { Log } from '../log.js'
@@ -322,6 +324,21 @@ export class Im {
 
   getStrangerList (): Promise<StrangerInfo[]> {
     return inbox.getStrangerList(this.inboxCtx)
+  }
+
+  /** 关注列表（uid 缺省登录账号，翻页传上页返回的 offset/maxTime） */
+  followUsers (options: RelationOptions = {}): Promise<relation.RelationPage> {
+    return relation.followUsers(this.http, options)
+  }
+
+  /** 粉丝列表 */
+  fanUsers (options: RelationOptions = {}): Promise<relation.RelationPage> {
+    return relation.fanUsers(this.http, options)
+  }
+
+  /** 互关列表（自动翻页，limit 控制上限） */
+  mutualUsers (options: MutualOptions = {}): Promise<relation.RelationUser[]> {
+    return relation.mutualUsers(this.http, options)
   }
 
   /** 批量查用户资料（昵称/头像），按 secUid 索引 */

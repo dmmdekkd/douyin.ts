@@ -222,7 +222,7 @@ log.info(`bot 已启动 uid=${bot.id}，Ctrl+C 退出`)
 // 冒烟：拉好友/群列表验证 HTTP 通道
 const [frds, grps] = [await bot.frd.list(), await bot.grp.list()]
 log.info(`好友 ${frds.length} 个，群 ${grps.length} 个`)
-log.info('命令: ping /echo x /at /atall /img /video /videop /vurl /vdl /file /emoji /reply /replyall /replyat /react /recall /edit /forward /read /share [itemId] /user /checkin /locate /typing on|off /call /thread')
+log.info('命令: ping /echo x /at /atall /img /video /videop /vurl /vdl /file /emoji /reply /replyall /replyat /react /recall /edit /forward /read /share [itemId] /user /checkin /locate /typing on|off /call /thread /page')
 
 const friend = frds[0]
 if (friend) log.info(`示例 chatId: ${friend.chatId}`)
@@ -474,6 +474,13 @@ async function cmd (msg: BotMessage): Promise<void> {
         : `语音通话发起 → ${msg.senderUid}: ` +
           `channel=${result.channelId ?? '-'} status=${result.status ?? '-'} ` +
           `statusCode=${result.statusCode ?? '-'} check=${result.checkCode ?? '-'} ${result.checkMessage ?? ''}`,
+    ))
+  } else if (text === '/page') {
+    // 分页验证：好友/群列表底层循环翻页，条数应超过单页限制（对比启动冒烟日志）
+    const [fs, gs] = [await bot.frd.list(), await bot.grp.list()]
+    await bot.msg.send(msg.chatId, textMsg(
+      `好友 ${fs.length} 个: ${fs.slice(0, 5).map(f => f.nickname).join('、')}${fs.length > 5 ? ' …' : ''}\n` +
+      `群 ${gs.length} 个: ${gs.slice(0, 5).map(g => g.name).join('、')}${gs.length > 5 ? ' …' : ''}`,
     ))
   } else if (text.startsWith('/thread')) {
     // 盖楼测试：消息须在楼内（threadId）；对楼内消息回复，收到回推帧验证是否进楼

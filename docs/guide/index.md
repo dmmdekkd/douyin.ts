@@ -42,7 +42,7 @@ await bot.start()
 | msg | send / reply / recall / react / read / edit |
 | media | image / video / file / videoUrl / emojiList |
 | sticker | list / favs / gifs / collect / trending |
-| frd | list / requests / approve / reject |
+| frd | list / follows / fans / mutual / requests / approve / reject |
 | grp | list / members / requests / approve / reject / rename / addMembers / removeMembers / leave / create |
 | chat | history / info / readIndex / minIndex / delete / setting / batchReadIndex |
 | user | self / profileScene / profileOther / onlineStatus |

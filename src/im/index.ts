@@ -64,6 +64,10 @@ export {
   type OnlineItem, type ReadSwitchItem,
 } from './active.js'
 export {
+  followUsers, fanUsers, mutualUsers,
+  type RelationUser, type RelationPage, type RelationOptions, type MutualOptions,
+} from './relation.js'
+export {
   AndroidFrontierWs, buildAndroidFrontierUrl, reconnectDelay, cookieValue,
   ANDROID_APP_KEY, ANDROID_ACCESS_SALT, ANDROID_UA, ANDROID_SDK_VERSION,
   type AndroidFrontierWsOptions, type AndroidFrontierWsCallbacks,

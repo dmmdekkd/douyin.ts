@@ -65,4 +65,8 @@ export type {
   StickerCollectResult,
   GroupShareInput,
   GroupShareResult,
+  RelationUser,
+  RelationPage,
+  RelationOptions,
+  MutualOptions,
 } from './im/index.js'
