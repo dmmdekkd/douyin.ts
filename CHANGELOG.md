@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.4](https://github.com/dmmdekkd/douyin.ts/compare/v0.6.3...v0.6.4) (2026-10-08)
+
+
+### Features
+
+* 新增好友关系管理功能及群/好友列表分页支持 ([35fecf6](https://github.com/dmmdekkd/douyin.ts/commit/35fecf65b600c392d060d33d23c084346b99787f))
+
 ## [0.6.3](https://github.com/dmmdekkd/douyin.ts/compare/v0.6.2...v0.6.3) (2026-10-05)
 
 
