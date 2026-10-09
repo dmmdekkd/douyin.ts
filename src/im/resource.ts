@@ -1,4 +1,5 @@
 import type { Http } from '../http/client.js'
+import { fingerprintParams } from './transport.js'
 
 /** 贴纸图片（static 静态 / animate 动图，抖音 GIF 表情即动图贴纸） */
 export interface StickerImage {
@@ -179,6 +180,32 @@ export async function strategyConfig (
     ...(res.data?.decision_trees ? { decisionTrees: res.data.decision_trees } : {}),
     ...(res.data?.interactive_resource_config ? { interactiveResourceConfig: res.data.interactive_resource_config } : {}),
   }
+}
+
+/**
+ * privacy/batch_build_image:把图源 uri 渲染为打码图(分享卡片脱敏头像/昵称场景),
+ * desktop 指纹批 + JSON body,HAR 实证返回 pack_results[0].UrlList 直链列表
+ */
+export async function privacyImage (
+  http: Http,
+  uri: string,
+  options: { format?: string; tpl?: string } = {},
+): Promise<string[]> {
+  const params = fingerprintParams(http.deviceId, http.guid)
+  const body = JSON.stringify({
+    convert_params: [{
+      uri,
+      format: options.format ?? 'tplv-x-get:large.image',
+      tpl: options.tpl ?? '%s://%v/%v~%v',
+    }],
+  })
+  const res = await http.json<{ data?: { pack_results?: Array<{ UrlList?: unknown[] }> } }>(
+    `${ORIGIN}/aweme/v1/web/privacy/batch_build_image/?${params}`,
+    { method: 'POST', headers: { Referer: ORIGIN, 'Content-Type': 'application/json' }, body },
+  )
+  const list = res.data?.data?.pack_results?.[0]?.UrlList
+  if (!Array.isArray(list)) throw new Error(`打码图生成失败 (HTTP ${res.status})`)
+  return list.filter((u): u is string => typeof u === 'string')
 }
 
 function isPageBean (v: unknown): v is { resources?: unknown[]; total_counts?: unknown; next_cursor?: unknown; is_completed?: unknown } {

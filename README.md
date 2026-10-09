@@ -108,7 +108,7 @@ bot.on('notice', async notice => {
 |----|------|------|
 | msg | send / edit / reply / media / forward / recall / react / read | 发消息、引用回复、富媒体、合并转发、撤回、表情回应、已读 |
 | media | image / video / file / videoUrl | 媒体上传与视频地址换取 |
-| frd | list / follows / fans / mutual / requests / approve / reject | 好友列表、关注/粉丝/互关、申请处理 |
+| frd | list / requests / approve / reject | 好友列表、申请处理 |
 | grp | list / members / requests / approve / reject / rename | 群列表、成员、入群申请、群名 |
 | chat | history / strangers | 历史消息、陌生人列表 |
 | user | self | 自身资料 |

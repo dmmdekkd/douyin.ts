@@ -1,5 +1,7 @@
 import protobuf from 'protobufjs'
+import { fingerprintParams } from './transport.js'
 import type { ProtoTransport } from './transport.js'
+import type { Http } from '../http/client.js'
 import type {
   ActionResult,
   ChatMessage,
@@ -23,6 +25,8 @@ const LONG = protobuf.util.Long as unknown as { fromString (value: string): unkn
 
 export interface InboxContext {
   transport: ProtoTransport
+  /** HTTP 链路（familiar/list 等 imdesktop 业务接口） */
+  http: Http
   /** Desktop IM 设备 ID（Cookie 通道 query 用） */
   deviceId: string
   /** 平台数字 uid（thread 映射用） */
@@ -411,18 +415,17 @@ export async function recall (
  * 会话列表 / 历史消息
  * ------------------------------------------------------------------------- */
 
-/** cmd=2006, /v1/conversation/list — Desktop 群聊元数据列表,循环翻页拉全量 */
+/** cmd=2006, /v1/conversation/list — Cookie 通道会话列表,循环翻页拉全量
+ * 实证：响应 conversationList 不回传翻页游标,服务端按请求 cursor 做 offset 式推进,不足一页即到底 */
 export async function listConversations (
   ctx: InboxContext,
   options: InboxListOptions = {},
 ): Promise<GroupInfo[]> {
   const all: GroupInfo[] = []
   let cursor = options.cursor ?? 0
-  const seen = new Set<number>()
+  const seenShortIds = new Set<string>()
   for (;;) {
-    // cursor 不推进即停止,防服务端翻页字段缺失/异常导致的死循环
-    if (seen.has(cursor)) break
-    seen.add(cursor)
+    const limit = options.count ?? 20
     const decoded = await ctx.transport.sendCookieProto(
       2006,
       0,
@@ -432,7 +435,7 @@ export async function listConversations (
           listType: 1,
           cursor,
           sortType: 2,
-          limit: options.count ?? 20,
+          limit,
         },
       },
       ctx.deviceId,
@@ -442,15 +445,16 @@ export async function listConversations (
     const body = decoded['body'] as Record<string, unknown> | null
     const list = body?.['conversationList'] as {
       conversations?: Array<Record<string, unknown>>
-      hasMore?: boolean | number
-      cursor?: string | number | { toString (): string }
     } | undefined
     const conversations = list?.conversations ?? []
-    all.push(...conversations.map(mapProtoConversationListItem))
-    if (!list?.hasMore || Number(list.hasMore) === 0) break
-    const next = Number(String(list.cursor ?? ''))
-    if (!Number.isFinite(next) || next === 0 || next === cursor) break
-    cursor = next
+    // 服务端忽略 cursor 时恒回同一批,按 shortId 去重防重复累积
+    const fresh = conversations.filter((c) => {
+      const id = String(c['conversationShortId'] ?? '')
+      return id !== '' && !seenShortIds.has(id) && (seenShortIds.add(id), true)
+    })
+    all.push(...fresh.map(mapProtoConversationListItem))
+    if (conversations.length < limit || fresh.length === 0) break
+    cursor += conversations.length
   }
   return all
 }
@@ -589,8 +593,8 @@ export async function getChatHistory (
  * 联系人业务视图
  * ------------------------------------------------------------------------- */
 
-/** 好友列表：Desktop Cookie 会话（P2P）映射为好友信息 */
-export async function getFriendList (
+/** 好友（旧实现：Desktop Cookie 会话 P2P 派生,保留备用） */
+export async function listFriendThreads (
   ctx: InboxContext,
   options: InboxListOptions = {},
 ): Promise<FriendInfo[]> {
@@ -601,13 +605,149 @@ export async function getFriendList (
     .filter((friend): friend is FriendInfo => friend != null)
 }
 
-/** 群列表：cmd 2006 会话中 type=2 / 纯数字会话 ID 的条目 */
-export async function getGroupList (
+/** familiar/list 单行身份 */
+interface FamiliarRow {
+  uid: string
+  secUid?: string
+  nickname: string
+}
+
+/** familiar/list 响应页（HAR 实测 cursor + has_more 翻页,user_list 为好友行） */
+interface FamiliarPage {
+  status_code?: number
+  user_list?: Array<Record<string, unknown>>
+  cursor?: number
+  has_more?: boolean
+}
+
+/** familiar/list 单行 → 好友身份（remark_name 优先作昵称；uid 非纯数字丢弃） */
+function familiarRow (raw: Record<string, unknown>): FamiliarRow | undefined {
+  const uid = String(raw['uid'] ?? '')
+  if (!/^\d+$/.test(uid)) return undefined
+  const secUid = String(raw['sec_uid'] ?? '')
+  return {
+    uid,
+    ...(secUid ? { secUid } : {}),
+    nickname: String(raw['remark_name'] ?? raw['nickname'] ?? ''),
+  }
+}
+
+/** GET /aweme/v1/web/familiar/list/ 循环翻页拉全量好友身份 */
+async function fetchFamiliarRows (
+  ctx: InboxContext,
+  options: InboxListOptions = {},
+): Promise<FamiliarRow[]> {
+  const rows: FamiliarRow[] = []
+  const seen = new Set<string>()
+  let cursor = options.cursor ?? 0
+  for (; ;) {
+    const params = fingerprintParams(ctx.http.deviceId, ctx.http.guid)
+    params.set('cursor', String(cursor))
+    params.set('vcd_count', '0')
+    params.set('hotsoon_has_more', '0')
+    params.set('only_total', '0')
+    params.set('count', String(options.count ?? 100))
+    params.set('order_by', '1')
+    params.set('need_all_friend', '1')
+    params.set('recommend_type', '22')
+    const res = await ctx.http.json<FamiliarPage>(
+      `https://imdesktop.douyin.com/aweme/v1/web/familiar/list/?${params}`,
+      { headers: { Referer: 'https://imdesktop.douyin.com' } },
+    )
+    const page = res.data
+    if (Number(page?.status_code ?? 0) !== 0) break
+    for (const raw of page.user_list ?? []) {
+      const row = familiarRow(raw)
+      if (row && !seen.has(row.uid)) {
+        seen.add(row.uid)
+        rows.push(row)
+      }
+    }
+    if (!page.has_more) break
+    const next = Number(page.cursor ?? 0)
+    if (!Number.isFinite(next) || next === cursor) break
+    cursor = next
+  }
+  return rows
+}
+
+/** 好友列表：真实接口 familiar/list；无会话 ID,按 uid 交叉匹配会话补齐 */
+export async function getFriendList (
+  ctx: InboxContext,
+  options: InboxListOptions = {},
+): Promise<FriendInfo[]> {
+  const [rows, threads] = await Promise.all([
+    fetchFamiliarRows(ctx, options),
+    listCookieThreads(ctx, { count: options.count }).catch(() => [] as PrivateThread[]),
+  ])
+  const byUid = new Map<string, PrivateThread>()
+  for (const thread of threads) {
+    if (thread.peer.uid && !byUid.has(thread.peer.uid)) byUid.set(thread.peer.uid, thread)
+  }
+  return rows.map((row) => {
+    const thread = byUid.get(row.uid)
+    return {
+      uid: row.uid,
+      ...(row.secUid ? { secUid: row.secUid } : {}),
+      nickname: row.nickname,
+      // familiar/list 不含会话 ID；无历史会话的好友 conversationId 留空（chatId 形如 1::,仅发送时抛错）
+      conversationId: thread?.threadId ?? '',
+      conversationShortId: thread?.conversationShortId ?? '',
+      ...(thread?.lastMessage ? { lastMessage: thread.lastMessage } : {}),
+      lastMessageTime: thread?.lastMessage?.createTime ?? thread?.updateTime ?? 0,
+      unreadCount: thread?.unreadCount ?? 0,
+    }
+  })
+}
+
+/** 旧 Cookie 通道会话列表（cmd 2006 /v1/conversation/list,再按 type=2 取群会话;群列表主用 listNativeGroups,此处保留备用） */
+export async function listConversationsByCookie (
   ctx: InboxContext,
   options: InboxListOptions = {},
 ): Promise<GroupInfo[]> {
   const conversations = await listConversations(ctx, options)
   return conversations.filter((conversation) => conversation.isGroup)
+}
+
+/** 群列表：原生通道 cmd=2006 /v1/conversation/list（imapi.douyin.com,对齐官方 PC 群列表） */
+export async function listNativeGroups (
+  ctx: InboxContext,
+  options: InboxListOptions = {},
+): Promise<GroupInfo[]> {
+  const all: GroupInfo[] = []
+  let cursor = options.cursor ?? 0
+  const seenShortIds = new Set<string>()
+  for (; ;) {
+    const limit = options.count ?? 20
+    const decoded = await ctx.transport.sendNativeProto(
+      2006,
+      0,
+      '/v1/conversation/list',
+      { conversationList: { listType: 1, cursor, sortType: 2, limit } },
+      ctx.deviceId,
+    )
+    const statusCode = Number(decoded['statusCode'] ?? 0)
+    if (statusCode !== 0) throw new Error(`listNativeGroups failed: ${String(decoded['errorDesc'] ?? '')} (code=${statusCode})`)
+    const body = decoded['body'] as Record<string, unknown> | null
+    const list = body?.['conversationList'] as { conversations?: Array<Record<string, unknown>> } | undefined
+    const conversations = list?.conversations ?? []
+    const fresh = conversations.filter((c) => {
+      const id = String(c['conversationShortId'] ?? '')
+      return id !== '' && !seenShortIds.has(id) && (seenShortIds.add(id), true)
+    })
+    all.push(...fresh.map(mapProtoConversationListItem))
+    if (conversations.length < limit || fresh.length === 0) break
+    cursor += conversations.length
+  }
+  return all.filter((conversation) => conversation.isGroup)
+}
+
+/** 群列表：原生通道全量群会话 */
+export async function getGroupList (
+  ctx: InboxContext,
+  options: InboxListOptions = {},
+): Promise<GroupInfo[]> {
+  return listNativeGroups(ctx, options)
 }
 
 /** 群成员列表：cmd=605 分页拉全量 */

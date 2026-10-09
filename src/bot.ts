@@ -32,7 +32,6 @@ import { createDevice } from './device.js'
 import { self } from './user.js'
 import type { SelfInfo } from './user.js'
 import type { FriendRequestStatus } from './im/index.js'
-import type { RelationOptions, MutualOptions } from './im/index.js'
 
 /** chatId：`type:shortId:conversationId` 的不透明串，内部解析为 address，格式不承诺稳定 */
 export function chatIdOf (src: PushMessage | { conversationId: string; conversationShortId: string; conversationType: number }): string {
@@ -274,6 +273,11 @@ class Sticker {
   strategy (scenes?: string[]): ReturnType<Im['strategyConfig']> {
     return this.bot.im().strategyConfig(scenes)
   }
+
+  /** 图源 uri 渲染为打码图（分享卡片脱敏用），返回 CDN 直链列表 */
+  privacyImage (uri: string, options?: { format?: string; tpl?: string }): ReturnType<Im['privacyImage']> {
+    return this.bot.im().privacyImage(uri, options)
+  }
 }
 
 class Frd {
@@ -298,21 +302,6 @@ class Frd {
 
   reject (uid: string): ReturnType<Im['rejectFriend']> {
     return this.bot.im().rejectFriend(uid)
-  }
-
-  /** 关注列表；uid 缺省登录账号，翻页传上页返回的 offset/maxTime */
-  follows (options?: RelationOptions): ReturnType<Im['followUsers']> {
-    return this.bot.im().followUsers(options)
-  }
-
-  /** 粉丝列表 */
-  fans (options?: RelationOptions): ReturnType<Im['fanUsers']> {
-    return this.bot.im().fanUsers(options)
-  }
-
-  /** 互关列表（自动翻页，limit 控制上限） */
-  mutual (options?: MutualOptions): ReturnType<Im['mutualUsers']> {
-    return this.bot.im().mutualUsers(options)
   }
 }
 
@@ -391,6 +380,11 @@ class Chat {
     return list
   }
 
+  /** 会话列表（旧 Cookie 通道，保留备用） */
+  list (options: { cursor?: number; count?: number } = {}): ReturnType<Im['listConversationsByCookie']> {
+    return this.bot.im().listConversationsByCookie(options)
+  }
+
   /** 会话详情（ticket/未读/成员），映射对齐列表会话 */
   info (chatId: string): ReturnType<Im['conversationsInfo']> {
     return this.bot.im().conversationsInfo([toAddress(chatId)])
@@ -459,6 +453,21 @@ class User {
     return self(this.bot.http())
   }
 
+  /** passport 账号详情（uid/昵称/手机/邮箱，登录态） */
+  account (): ReturnType<Im['accountInfo']> {
+    return this.bot.im().accountInfo()
+  }
+
+  /** passport 令牌心跳（scene=boot 启动 / polling 周期轮询），续杯防掉线 */
+  beatToken (scene = 'boot'): ReturnType<Im['beatToken']> {
+    return this.bot.im().beatToken(scene)
+  }
+
+  /** 批量查用户信息（昵称/头像/签名/关系），按 secUid */
+  info (secUids: string[]): ReturnType<Im['userInfo']> {
+    return this.bot.im().userInfo(secUids)
+  }
+
   /** 对话场景资料（字段比 profileOther 少） */
   profileScene (secUid: string): ReturnType<Im['profileScene']> {
     return this.bot.im().profileScene(secUid)
@@ -467,6 +476,11 @@ class User {
   /** 完整资料（含地域/年龄等原始字段，raw 透传） */
   profileOther (secUid: string): ReturnType<Im['profileOther']> {
     return this.bot.im().profileOther(secUid)
+  }
+
+  /** 自己的完整资料 */
+  profileSelf (): ReturnType<Im['profileSelf']> {
+    return this.bot.im().profileSelf()
   }
 
   /** 批量查 sec 用户在线状态 */
@@ -482,6 +496,100 @@ class User {
   /** 在线状态开关（1=开启，我可被对方看到在线） */
   activeSwitch (): ReturnType<Im['activeSwitch']> {
     return this.bot.im().activeSwitch()
+  }
+}
+
+class Social {
+  constructor (private readonly bot: Bot) {}
+
+  /** 关注/好友关系列表（count+source 可调） */
+  spotlight (options?: { count?: number; source?: string }): ReturnType<Im['spotlight']> {
+    return this.bot.im().spotlight(options)
+  }
+
+  /** 可能认识的人 */
+  familiar (options?: { count?: number; cursor?: number; recommendType?: number }): ReturnType<Im['familiarList']> {
+    return this.bot.im().familiarList(options)
+  }
+
+  /** 关注用户（响应体为空，只判 HTTP 状态） */
+  follow (userId: string, secUid: string, options?: { type?: number; tag?: string }): ReturnType<Im['followUser']> {
+    return this.bot.im().followUser(userId, secUid, options)
+  }
+
+  /** 气泡详情 */
+  bubble (bubbleId: string, options?: { needCurrent?: boolean }): ReturnType<Im['bubbleDetail']> {
+    return this.bot.im().bubbleDetail(bubbleId, options)
+  }
+}
+
+class Watch {
+  constructor (private readonly bot: Bot) {}
+
+  /** 拉取作品弹幕（startTime/endTime 毫秒偏移窗口） */
+  danmaku (
+    itemId: string,
+    options?: { groupId?: string; startTime?: number; endTime?: number; duration?: number; token?: string },
+  ): ReturnType<Im['danmaku']> {
+    return this.bot.im().danmaku(itemId, options)
+  }
+
+  /** 上报播放进度 */
+  progress (itemId: string, progress: number, duration: number): ReturnType<Im['playProgress']> {
+    return this.bot.im().playProgress(itemId, progress, duration)
+  }
+
+  /** 短剧剧集观看记录 */
+  series (seriesId: string, itemId: string, episode: number): ReturnType<Im['seriesRecord']> {
+    return this.bot.im().seriesRecord(seriesId, itemId, episode)
+  }
+
+  /** 合集观看记录 */
+  mix (mixId: string, itemId: string, episode: number): ReturnType<Im['mixRecord']> {
+    return this.bot.im().mixRecord(mixId, itemId, episode)
+  }
+
+  /** 写入观看历史 */
+  history (awemeId: string, options?: { authorId?: string; preItemId?: string }): ReturnType<Im['historyWrite']> {
+    return this.bot.im().historyWrite(awemeId, options)
+  }
+
+  /** 批量查作品安全等级 */
+  safety (itemIds: string[]): ReturnType<Im['safetyCheck']> {
+    return this.bot.im().safetyCheck(itemIds)
+  }
+}
+
+class Notice {
+  constructor (private readonly bot: Bot) {}
+
+  /** 通知分组未读数（红点轮询用） */
+  count (): ReturnType<Im['noticeCount']> {
+    return this.bot.im().noticeCount()
+  }
+
+  /** 通知列表（缺省互动分组 401；markRead=false 拉取不标记已读） */
+  list (options?: { count?: number; group?: number; maxTime?: number; minTime?: number; markRead?: boolean }): ReturnType<Im['noticeList']> {
+    return this.bot.im().noticeList(options)
+  }
+}
+
+class Setting {
+  constructor (private readonly bot: Bot) {}
+
+  /** 桌面消息提醒设置 */
+  desktop (): ReturnType<Im['desktopSetting']> {
+    return this.bot.im().desktopSetting()
+  }
+
+  /** 账号综合设置（私密等级/青少年模式，raw 透传全量字段） */
+  account (): ReturnType<Im['userSettings']> {
+    return this.bot.im().userSettings()
+  }
+
+  /** 合规/青少年模式设置 */
+  compliance (): ReturnType<Im['complianceSetting']> {
+    return this.bot.im().complianceSetting()
   }
 }
 
@@ -509,6 +617,10 @@ export class Bot {
   readonly chat = new Chat(this)
   readonly user = new User(this)
   readonly sticker = new Sticker(this)
+  readonly social = new Social(this)
+  readonly watch = new Watch(this)
+  readonly notice = new Notice(this)
+  readonly setting = new Setting(this)
 
   private readonly opts: BotOpts
   private readonly log: Log

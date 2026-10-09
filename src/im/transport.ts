@@ -16,23 +16,56 @@ export const PC_UA =
 const desktop = {
   appId: 339757,
   appName: 'aweme_im_desktop',
-  version: '1.2.1',
+  version: '1.1.34',
   buildNumber: 'eb11b84dd0eb26ae22321b53426d3f976b920862',
   apiUrl: 'https://imapi3-normal.zijieapi.com',
   access: 'cpp_sdk',
   biz: 'douyin_im_pc',
 } as const
 
-/** 官方桌面 IM 客户端 UA */
+/** 官方桌面 IM 客户端 UA（HAR 实测 Windows douyinim/1.1.34） */
 const IM_UA =
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) douyinim/1.2.1 Chrome/130.0.6723.58 Electron/33.2.0 Safari/537.36'
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) douyinim/1.1.34 Chrome/136.0.7103.59 Electron/36.4.0-rs.28.release.main.0 TTElectron/36.4.0-rs.28.release.main.0 Safari/537.36'
+
+/** 原生通道 profile（对照 HAR：无 URL query、无 x-ss-stub；设备身份走 envelope f15 headers map） */
+const native = {
+  apiUrl: 'https://imapi.douyin.com',
+  sdkVersion: '0.1.8',
+  buildNumber: '0d50935:feat/pc-im-group',
+  versionCode: '360000',
+  devicePlatform: 'douyin_pc',
+  biz: 'douyin_im_pc',
+  access: 'web_sdk',
+} as const
+
+/** 原生通道 f15 headers map（设备身份载体） */
+function nativeHeaders (deviceId: string): Record<string, string> {
+  return {
+    session_aid: String(desktop.appId),
+    session_did: deviceId,
+    app_name: 'douyin_pc',
+    priority_region: 'cn',
+    user_agent: IM_UA,
+    cookie_enabled: 'true',
+    browser_language: 'zh-CN',
+    browser_platform: 'Win32',
+    browser_name: 'Mozilla',
+    browser_version: IM_UA.replace(/^Mozilla\//, ''),
+    browser_online: 'true',
+    screen_width: '1707',
+    screen_height: '960',
+    referer: '',
+    timezone_name: 'Asia/Shanghai',
+    'is-retry': '0',
+  }
+}
 
 /** config/v2 与 batch_play_info 共用的 desktop 指纹 query（媒体上传用）。 */
 export function fingerprintParams (deviceId: string, guid: string): URLSearchParams {
   return new URLSearchParams({
     aid: String(desktop.appId),
-    version_name: '1.1.33',
-    version_code: '1.1.33',
+    version_name: '1.1.34',
+    version_code: '1.1.34',
     device_platform: 'win32',
     os_version: '10.0.26200',
     screen_width: '1707',
@@ -117,14 +150,58 @@ export class ProtoTransport {
       body: requestBody,
     })
     if (!res.ok) {
-      throw new Error(`IM Cookie HTTP ${res.status} ${endpoint}: ${Buffer.from(res.data).toString('utf8', 0, 200)}`)
+      throw new Error(`IM proto HTTP ${res.status} ${endpoint}: ${Buffer.from(res.data).toString('utf8', 0, 200)}`)
     }
+    return this.decodeProto(cmd, endpoint, res.data)
+  }
+
+  /** 原生通道（imapi.douyin.com：无 URL query、无 x-ss-stub，设备身份在 envelope f15 headers map）。 */
+  async sendNativeProto (
+    cmd: number,
+    inboxType: number,
+    endpoint: string,
+    body: Record<string, unknown>,
+    deviceId: string,
+  ): Promise<Record<string, unknown>> {
+    const payload = encodeRequest({
+      token: '',
+      cmd,
+      inboxType,
+      body,
+      authType: 1,
+      deviceId,
+      sdkVersion: native.sdkVersion,
+      buildNumber: native.buildNumber,
+      versionCode: native.versionCode,
+      devicePlatform: native.devicePlatform,
+      biz: native.biz,
+      access: native.access,
+      headers: nativeHeaders(deviceId),
+    })
+    const res = await this.http.bytes(`${native.apiUrl}${endpoint}`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/x-protobuf',
+        'Content-Type': 'application/x-protobuf',
+        'User-Agent': IM_UA,
+        Referer: 'https://imdesktop.douyin.com',
+      },
+      body: Buffer.from(payload),
+    })
+    if (!res.ok) {
+      throw new Error(`IM proto HTTP ${res.status} ${endpoint}: ${Buffer.from(res.data).toString('utf8', 0, 200)}`)
+    }
+    return this.decodeProto(cmd, endpoint, res.data)
+  }
+
+  /** 两条通道共用的响应解码与失败诊断 */
+  private decodeProto (cmd: number, endpoint: string, data: Uint8Array): Record<string, unknown> {
     let decoded: Record<string, unknown>
     try {
-      decoded = decodeResponseRaw(res.data)
+      decoded = decodeResponseRaw(data)
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
-      throw new Error(`IM Cookie response decode failed cmd=${cmd} ${endpoint}: ${detail}`)
+      throw new Error(`IM proto response decode failed cmd=${cmd} ${endpoint}: ${detail}`)
     }
     const statusCode = Number(decoded['statusCode'] ?? 0)
     if (statusCode !== 0) {

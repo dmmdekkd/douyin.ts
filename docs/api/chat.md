@@ -103,6 +103,21 @@ await bot.chat.ack(chatId, serverMessageId)
 | chatId | string | - | 会话标识 |
 | serverMessageId | string | - | 消息 id |
 
+## 会话列表
+
+`bot.chat.list(options?)` — Cookie 通道会话列表（cmd 2006），旧实现保留备用。
+
+```ts
+const res = await bot.chat.list()
+```
+
+### 参数
+
+| 参数 | 类型 | 可能的值 | 说明 |
+|------|------|----------|------|
+| options.cursor | number | - | 起始游标 |
+| options.count | number | - | 单页条数 |
+
 ## 陌生人会话
 
 `bot.chat.strangerConversations()` — 陌生人会话列表。实测服务端常限流返回 409，结果 `statusMsg` 会给出原因。

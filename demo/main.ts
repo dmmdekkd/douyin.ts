@@ -222,10 +222,41 @@ log.info(`bot 已启动 uid=${bot.id}，Ctrl+C 退出`)
 // 冒烟：拉好友/群列表验证 HTTP 通道
 const [frds, grps] = [await bot.frd.list(), await bot.grp.list()]
 log.info(`好友 ${frds.length} 个，群 ${grps.length} 个`)
-log.info('命令: ping /echo x /at /atall /img /video /videop /vurl /vdl /file /emoji /reply /replyall /replyat /react /recall /edit /forward /read /share [itemId] /user /checkin /locate /typing on|off /call /thread /page')
+log.info('命令: ping /echo x /at /atall /img /video /videop /vurl /vdl /file /emoji /reply /replyall /replyat /react /recall /edit /forward /read /share [itemId] /user /checkin /locate /typing on|off /call /thread /page /follows [n] /fans [n] /mutual [n]')
 
 const friend = frds[0]
 if (friend) log.info(`示例 chatId: ${friend.chatId}`)
+
+// 终端命令：直接在终端调用 SDK 查询，免发消息；与聊天指令互补
+log.info('终端命令: frd | grp | user <secUid...>')
+
+/** 终端 REPL：frd 好友列表 / grp 群列表 / user 用户信息，结果彩色打印 */
+async function terminal (): Promise<void> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout, prompt: 'demo> ' })
+  rl.prompt()
+  for await (const raw of rl) {
+    const [name, ...args] = raw.trim().split(/\s+/)
+    try {
+      if (name === 'frd') {
+        const list = await bot.frd.list()
+        log.info(`好友 ${list.length} 个:\n${pretty(list)}`)
+      } else if (name === 'grp') {
+        const list = await bot.grp.list()
+        log.info(`群 ${list.length} 个:\n${pretty(list)}`)
+      } else if (name === 'user') {
+        if (!args.length) log.warn('用法: user <secUid...>')
+        else log.info(`用户信息:\n${pretty(await bot.user.info(args))}`)
+      } else if (name) {
+        log.warn('命令: frd | grp | user <secUid...>')
+      }
+    } catch (err) {
+      log.error(`命令失败: ${err instanceof Error ? err.message : String(err)}`)
+    }
+    rl.prompt()
+  }
+}
+
+void terminal()
 
 /** 消息类型测试命令：给 bot 发对应指令触发各发送通道 */
 async function cmd (msg: BotMessage): Promise<void> {

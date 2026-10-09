@@ -84,7 +84,7 @@ bot.chat.history() / strangers()
 bot.user.self()
 ```
 
-事件收消息走 Android Frontier WS 推送，发消息统一 HTTP cookie 通道（cmd=100），HTTP 同时承担收件箱查询与媒体上传。
+事件收消息走 Android Frontier WS 推送，发消息统一 HTTP cookie 通道（cmd=100），HTTP 同时承担收件箱查询、好友列表（imdesktop `familiar/list`）与媒体上传；群列表另走官方 PC 原生通道（`imapi.douyin.com`，设备身份在 envelope headers map）。
 
 ## 发布与自动化（GitHub Actions）
 

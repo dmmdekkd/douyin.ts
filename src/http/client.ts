@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { UA, aidSign, im, normalizePassportPath, noonTs, randomHex, randomTrace, web } from '../sign/index.js'
+import { UA, aidSign, im, normalizePassportPath, noonTs, passport, randomHex, randomTrace, web } from '../sign/index.js'
 import { Jar } from './jar.js'
 import { parseJson } from './res.js'
 import type { Res } from './res.js'
@@ -57,31 +57,35 @@ export class Http {
     return this.deviceId !== '0' && /^\d+$/.test(this.deviceId)
   }
 
-  /** Passport 接口请求头;imdesktop(桌面)与 creator(web)分流 */
+  /** Passport 接口请求头;imdesktop(桌面,含登录)/creator(web)分流 */
   passportHeaders (url?: string): Record<string, string> {
+    // 登录与 IM 统一走 imdesktop,desktop 判定优先,避免同源被 login 分支覆盖
     const desktop = Boolean(url?.startsWith(im.origin))
+    const login = !desktop && Boolean(url?.startsWith(passport.origin))
     const headers: Record<string, string> = {
       Accept: 'application/json, text/javascript',
-      Referer: desktop ? im.origin : `${web.origin}/creator-micro/home`,
+      Referer: desktop || login ? im.origin : `${web.origin}/creator-micro/home`,
     }
     const csrf = this.jar.get('passport_csrf_token') ?? this.jar.get('passport_csrf_token_default')
     if (csrf) headers['x-tt-passport-csrf-token'] = csrf
     headers['x-tt-passport-trace-id'] = this.bizTraceId
     headers['x-tt-passport-verify-portrait'] = this.portrait
-    const sign = this.aidSignFor(url, desktop ? 'im' : 'web')
+    const domain = login ? 'passport' : desktop ? 'im' : 'web'
+    const sign = this.aidSignFor(url, domain)
     if (sign) headers['x-tt-passport-aid-sign'] = sign
-    if (desktop) return headers
+    if (desktop || login) return headers
     const secsdk = secsdkToken(this.jar.get('x-web-secsdk-uid'))
     if (secsdk) headers['x-secsdk-csrf-token'] = secsdk
     return headers
   }
 
-  private aidSignFor (url: string | undefined, domain: 'im' | 'web'): string | undefined {
+  private aidSignFor (url: string | undefined, domain: 'passport' | 'im' | 'web'): string | undefined {
     if (!url) return undefined
+    const scope = domain === 'passport' ? passport : domain === 'im' ? im : web
     try {
       return aidSign({
-        aid: domain === 'im' ? im.aid : web.aid,
-        appKey: domain === 'im' ? im.appKey : web.appKey,
+        aid: scope.aid,
+        appKey: scope.appKey,
         path: normalizePassportPath(new URL(url).pathname),
         ts: noonTs(),
       })
@@ -128,7 +132,8 @@ export class Http {
     // UA 仅作默认值,调用方传入的 headers 可覆盖
     if (!headers.has('User-Agent')) headers.set('User-Agent', this.ua)
     const cookie = this.jar.header()
-    if (cookie) headers.set('Cookie', cookie)
+    // Cookie 同 UA:调用方显式传入(主站 passport 会话)优先,否则用 jar
+    if (cookie && !headers.has('Cookie')) headers.set('Cookie', cookie)
     const res = await fetch(url, {
       ...init,
       headers,

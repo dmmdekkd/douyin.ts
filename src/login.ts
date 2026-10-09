@@ -1,14 +1,14 @@
 /** 扫码登录编排:设备注册 → 取码 → 轮询 → 本地安全验证 / MFA → 会话。不落盘任何东西。 */
 import { browserInfo, encodeBrowserInfo } from './sign/browser.js'
 import { mixEncode } from './sign/mix.js'
-import { desktopBaseQuery, desktopUrl, encodeForm, signQuery, type SignExtras } from './sign/qs.js'
-import { im } from './sign/const.js'
+import { encodeForm, passportBaseQuery, randomMsToken, signQuery, type SignExtras } from './sign/qs.js'
+import { im, passport } from './sign/const.js'
 import { Http, verifyDecision } from './http/index.js'
 import { form, type MfaRes } from './lite.js'
 import { createDevice } from './device.js'
+import { createLog, type Log } from './log.js'
 import { self } from './user.js'
 import { parseDecision, stringifyFields, verify } from './verify.js'
-import type { Log } from './log.js'
 
 /** check_qrconnect 轮询间隔与总超时(协议节奏,勿随意改) */
 const POLL_MS = 1100
@@ -16,6 +16,9 @@ const TIMEOUT_MS = 120_000
 /** 上行短信确认轮询:3s 间隔 / 180s 上限 */
 const UP_SMS_POLL_MS = 3000
 const UP_SMS_TIMEOUT_MS = 180_000
+
+/** 默认 SDK 内部日志:登录链路失败原因需可见,静默轮询会让卡点无从定位 */
+const log = createLog({ tag: 'login' })
 
 const QR_BODY = {
   need_logo: 'false',
@@ -127,10 +130,10 @@ export interface Session {
 
 /** 扫码登录全流程;调用链形态对齐 douyin-im beginLogin 桌面流程 */
 export async function login (opts: LoginOpts = {}): Promise<Session> {
-  const http = new Http({ userAgent: opts.userAgent, log: opts.log })
+  const http = new Http({ userAgent: opts.userAgent ?? passport.ua, log: opts.log })
   // 服务端签发的设备身份是登录不触发短信二次验证的根因
   http.setDevice(await createDevice(opts.log))
-  await ttwid(http).catch(() => undefined)
+  await warm(http).catch(() => undefined)
 
   const qr = await getQr(http)
   await opts.onQr?.({ url: qr.indexUrl ?? qr.token, base64: qr.base64 })
@@ -149,58 +152,56 @@ export async function login (opts: LoginOpts = {}): Promise<Session> {
   return session
 }
 
-/** 桌面端 ttwid 预热(失败不阻断登录) */
-async function ttwid (http: Http): Promise<void> {
+/**
+ * imdesktop 域信任态预热：官方客户端冷启动向同域 ttwid 服务领取 ttwid，
+ * 冷启动缺 ttwid 时确认轮触发 2156/2046；失败不阻断登录
+ */
+async function warm (http: Http): Promise<void> {
   await http.request(`${im.origin}/ttwid/check/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      aid: Number(im.aid),
-      service: 'imdesktop.douyin.com',
-      unionHost: 'https://ttwid.bytedance.com',
-      host: 'https://imdesktop.douyin.com',
-      union: false,
-      needFid: false,
-      fid: '',
-      migrate_priority: 0,
-    }),
+    body: JSON.stringify({ aid: Number(passport.aid), service: '' }),
   })
 }
 
 /** account_sdk_source_info:优先 Cookie,缺失时以 browserInfo 模板编码并回写 */
-function sdkSourceInfo (http: Http): string {
+export function sdkSourceInfo (http: Http): string {
   const stored = http.jar.get('sdk_source_info')
   if (stored) return stored
-  const info = encodeBrowserInfo(browserInfo())
+  const info = encodeBrowserInfo(browserInfo(http.deviceId))
   http.jar.set('sdk_source_info', info)
   return info
 }
 
-function signExtras (http: Http, bodyWire = ''): SignExtras {
+export function signExtras (http: Http, bodyWire = ''): SignExtras {
   const extras: SignExtras = {
     userAgent: http.ua,
-    appKey: im.appKey,
+    // 桌面登录页走 jumpbyte desktop 变体 a_bogus(HAR 全链路实证)
+    appKey: passport.appKey,
     aBogusVariant: 'jumpbyte-desktop',
     bodyWire,
   }
   const msToken = http.jar.get('msToken')
-  if (msToken) extras.msToken = msToken
+  // 官方每轮携带随机 msToken,不参与 sign
+  extras.msToken = msToken ?? randomMsToken()
   return extras
 }
 
 /** GET /passport/web/get_qrcode/,返回二维码 token 与 base64 图片 */
 async function getQr (http: Http): Promise<{ token: string; base64: string; indexUrl?: string }> {
-  const query = desktopBaseQuery({
+  const query = passportBaseQuery({
     deviceId: http.deviceId,
     installId: http.installId,
     accountSdkSourceInfo: sdkSourceInfo(http),
     bizTraceId: http.bizTraceId,
     next: QR_BODY.next,
-    extra: { need_logo: 'false', need_short_url: 'true' },
+    extra: { need_logo: QR_BODY.need_logo, need_short_url: QR_BODY.need_short_url },
   })
   const { search } = signQuery(query, {}, signExtras(http))
-  const url = desktopUrl('/passport/web/get_qrcode/', search)
-  const res = await http.json<Envelope<GetQrData>>(url, { headers: http.passportHeaders(url) })
+  const url = `${passport.origin}/passport/web/get_qrcode/?${search}`
+  const res = await http.json<Envelope<GetQrData>>(url, {
+    headers: http.passportHeaders(url),
+  })
   if (!res.ok) {
     throw new Error(`get_qrcode failed: HTTP ${res.status} ${res.text.slice(0, 200)}`)
   }
@@ -211,34 +212,51 @@ async function getQr (http: Http): Promise<{ token: string; base64: string; inde
   return { token: d.token, base64: d.qrcode, indexUrl: d.qrcode_index_url }
 }
 
-/** POST /passport/web/check_qrconnect/,返回当前扫码状态;fp 用于安全验证后回填 */
+/**
+ * POST /passport/web/check_qrconnect/;postSign 为 MFA biz 参数,在签名之后追加进 body
+ * (HAR 实证:确认轮 sign 只覆盖基础 body,std_verify_* 不参与签名)
+ */
 async function checkQr (
   http: Http,
   token: string,
-  bodyOverrides?: Record<string, string>,
+  postSign?: Record<string, string>,
   fp?: string,
 ): Promise<{ data: CheckData; decision: string | undefined }> {
-  const body: Record<string, string> = { ...QR_BODY, token, ...bodyOverrides }
-  const query = desktopBaseQuery({
+  const body: Record<string, string> = {
+    need_logo: QR_BODY.need_logo,
+    need_short_url: QR_BODY.need_short_url,
+    is_frontier: QR_BODY.is_frontier,
+    token,
+    is_new_login: QR_BODY.is_new_login,
+    next: QR_BODY.next,
+  }
+  const query = passportBaseQuery({
     deviceId: http.deviceId,
     installId: http.installId,
     accountSdkSourceInfo: sdkSourceInfo(http),
     bizTraceId: http.bizTraceId,
-    extra: fp ? { fp } : undefined,
+    // 验证中心回填的 fp 追加进 query(HAR 实证:未验证时确认轮不带 fp)
+    ...(fp ? { extra: { fp } } : {}),
   })
   const bodyWire = encodeForm(body)
   const { search } = signQuery(query, body, signExtras(http, bodyWire))
-  const url = desktopUrl('/passport/web/check_qrconnect/', search)
+  const url = `${passport.origin}/passport/web/check_qrconnect/?${search}`
   const res = await http.json<Envelope<CheckData>>(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...http.passportHeaders(url) },
-    body: bodyWire,
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      ...http.passportHeaders(url),
+    },
+    body: postSign ? encodeForm({ ...body, ...postSign }) : bodyWire,
   })
   if (!res.ok) {
     throw new Error(`check_qrconnect failed: HTTP ${res.status} ${res.text.slice(0, 200)}`)
   }
   return { data: res.data.data, decision: verifyDecision(res.headers) }
 }
+
+/** 频控等不可重试错误:需穿透轮询 catch 直接终止,不带着频控继续轮询 */
+class Fatal extends Error {}
 
 /** 轮询直至 confirmed / expired / 超时 */
 async function poll (http: Http, token: string, opts: LoginOpts): Promise<Session> {
@@ -247,8 +265,8 @@ async function poll (http: Http, token: string, opts: LoginOpts): Promise<Sessio
   let mfaDone = false
   let notified: string | undefined
   let extra: Record<string, string> = {}
-  let verifyCount = 0
   let fp: string | undefined
+  let verifyCount = 0
 
   while (Date.now() < deadline) {
     let decision: string | undefined
@@ -256,22 +274,60 @@ async function poll (http: Http, token: string, opts: LoginOpts): Promise<Sessio
       const res = await checkQr(http, token, extra, fp)
       last = res.data
       decision = res.decision
-    } catch {
-      await sleep(POLL_MS)
-      continue
-    }
+      const code = Number(last.error_code ?? 0)
+      if (code !== 0) log.warn(`check_qrconnect error_code=${code} ${String(last.description ?? '')}`)
 
-    // 验证中心决策:需在本地验证页完成官方安全验证(滑块/短信/扫码等)后携带结果重试;
-    // 登录态可信度不足是发送消息被会话级降权(7523)的根因,最多重试 3 次
-    const center = verifyCount < 3 ? parseDecision(last, decision) : undefined
-    if (center) {
-      verifyCount += 1
-      await opts.onStatus?.('verifying')
-      const outcome = await verify(http, center, { onUrl: opts.onVerifyUrl })
-      extra = { ...extra, ...stringifyFields(outcome.fields) }
-      fp = outcome.fp ?? fp
-      await opts.onStatus?.('verified')
-      deadline = Date.now() + TIMEOUT_MS
+      // 验证中心决策:风控/滑块等非 0 error_code(1105/2046/2156)同样可能下发验证决策,
+      // 必须在频控退避之前解析,否则本地验证页永远不会被拉起
+      const center = verifyCount < 3 ? parseDecision(last, decision) : undefined
+      if (center) {
+        verifyCount += 1
+        await opts.onStatus?.('verifying')
+        // aid 显式用桌面 IM 339757：验证页按 imdesktop 场景渲染
+        const outcome = await verify(http, center, { onUrl: opts.onVerifyUrl, aid: Number(passport.aid) })
+        extra = { ...extra, ...stringifyFields(outcome.fields) }
+        fp = outcome.fp ?? fp
+        await opts.onStatus?.('verified')
+        deadline = Date.now() + TIMEOUT_MS
+        // 验证完成后按轮询间隔再查,避免验证请求与紧接的 poll 挤进同一频控窗口
+        await sleep(POLL_MS)
+        continue
+      }
+
+      // 短信/密码二次验证:account_flow=verify 或带 biz_params 即为服务端下发的 MFA 挑战
+      // (2046 响应的 biz_params 含 std_verify_flow_id/token,每轮刷新),优先走内置流程;
+      // 无可用验证方式时回退 App 侧验证提示,等待服务端放行
+      if (!mfaDone && (last.account_flow === 'verify' || last.biz_params != null)) {
+        await opts.onStatus?.('verifying')
+        try {
+          extra = { ...extra, ...await mfa(http, last, opts) }
+          mfaDone = true
+          // 验证通过后按轮询间隔再查,避免验证请求与紧接的 poll 挤进同一频控窗口
+          await sleep(POLL_MS)
+        } catch (e) {
+          log.warn(`二次验证不可自动完成: ${e instanceof Error ? e.message : String(e)}`)
+          await opts.onStatus?.('请前往抖音 App 完成安全验证后继续登录')
+          await sleep(5000)
+          continue
+        }
+        continue
+      }
+
+      // 访问太频繁(error_code=7)不可重试,与官方一致直接终止,不带着频控继续轮询
+      if (code === 7) throw new Fatal(`check_qrconnect error_code=7 ${String(last.description ?? '访问太频繁')}`)
+      // 2046 为 App 侧安全验证:提示后退避等待服务端放行
+      if (code === 2046) {
+        if (notified !== 'app_verify') {
+          notified = 'app_verify'
+          await opts.onStatus?.('请前往抖音 App 完成安全验证后继续登录')
+        }
+        await sleep(5000)
+        continue
+      }
+    } catch (e) {
+      if (e instanceof Fatal) throw e
+      log.warn(`check_qrconnect 异常: ${e instanceof Error ? e.message : String(e)}`)
+      await sleep(POLL_MS)
       continue
     }
 
@@ -472,8 +528,8 @@ function mfaBody (challenge: Challenge, verifyWay: string, extra: Record<string,
     std_verify_type: value(biz, 'std_verify_type', 'MFA'),
     std_verify_way: verifyWay,
     ...extra,
-    aid: im.aid,
-    new_authn_sdk_version: '1.0.0.421-web',
+    aid: passport.aid,
+    new_authn_sdk_version: '1.0.0.428-web',
   }
 }
 

@@ -11,16 +11,24 @@ import * as send from './send.js'
 import * as query from './query.js'
 import * as users from './users.js'
 import * as active from './active.js'
-import type { UserProfile } from './users.js'
+import type { UserProfile, UserInfo } from './users.js'
 import * as play from './play.js'
 import * as emoji from './emoji.js'
 import type { EmojiInfo } from './emoji.js'
 import * as resource from './resource.js'
 import type { StickerCollectResult, StickerPage } from './resource.js'
 import * as share from './share.js'
-import * as relation from './relation.js'
-import type { RelationOptions, MutualOptions } from './relation.js'
 import type { EncryptedVideoUrl } from './media.js'
+import * as account from './account.js'
+import type { AccountInfo } from './account.js'
+import * as watch from './watch.js'
+import type { Danmaku } from './watch.js'
+import * as social from './social.js'
+import type { Bubble, SocialUser, RelationPage } from './social.js'
+import * as notify from './notify.js'
+import type { NoticeCount, NoticePage } from './notify.js'
+import * as setting from './setting.js'
+import type { DesktopSetting, UserSettings, ComplianceSetting } from './setting.js'
 import { createLog } from '../log.js'
 import type { Log } from '../log.js'
 import type { Http } from '../http/client.js'
@@ -123,6 +131,7 @@ export class Im {
     })
     this.inboxCtx = {
       transport: this.transport,
+      http: this.http,
       deviceId: this.deviceId,
       platformUid: options.userId,
     }
@@ -326,24 +335,18 @@ export class Im {
     return inbox.getStrangerList(this.inboxCtx)
   }
 
-  /** 关注列表（uid 缺省登录账号，翻页传上页返回的 offset/maxTime） */
-  followUsers (options: RelationOptions = {}): Promise<relation.RelationPage> {
-    return relation.followUsers(this.http, options)
-  }
-
-  /** 粉丝列表 */
-  fanUsers (options: RelationOptions = {}): Promise<relation.RelationPage> {
-    return relation.fanUsers(this.http, options)
-  }
-
-  /** 互关列表（自动翻页，limit 控制上限） */
-  mutualUsers (options: MutualOptions = {}): Promise<relation.RelationUser[]> {
-    return relation.mutualUsers(this.http, options)
+  listConversationsByCookie (options: inbox.InboxListOptions = {}): Promise<GroupInfo[]> {
+    return inbox.listConversationsByCookie(this.inboxCtx, options)
   }
 
   /** 批量查用户资料（昵称/头像），按 secUid 索引 */
   getUserProfiles (secUids: string[]): Promise<Map<string, UserProfile>> {
     return users.getUserProfiles(this.http, secUids)
+  }
+
+  /** IM 用户信息（昵称/头像/签名/关系），按 secUid 批量 */
+  userInfo (secUids: string[]): Promise<UserInfo[]> {
+    return users.userInfo(this.http, secUids)
   }
 
   /** 用消息视频的 tkey 换加密 CDN 播放地址（CENC 加密流） */
@@ -455,6 +458,11 @@ export class Im {
     return users.profileOther(this.http, secUid)
   }
 
+  /** 自己的完整资料（其他接口查的是别人的资料） */
+  profileSelf (): Promise<users.ProfileDetail> {
+    return users.profileSelf(this.http)
+  }
+
   /** 按 awemeId 批量拉消息中的作品详情（视频/图文） */
   awemeDetail (
     awemeIds: string[],
@@ -471,6 +479,109 @@ export class Im {
   /** app 能力开关（决策树 + 动效资源包配置） */
   strategyConfig (scenes?: string[]): Promise<resource.StrategyConfig> {
     return resource.strategyConfig(this.http, scenes)
+  }
+
+  /** 图源 uri 渲染为打码图（分享卡片脱敏用），返回 CDN 直链列表 */
+  privacyImage (uri: string, options?: { format?: string; tpl?: string }): Promise<string[]> {
+    return resource.privacyImage(this.http, uri, options)
+  }
+
+  /* -- passport 账号 ---------------------------------------------------------- */
+
+  /** 当前账号详情（uid/昵称/手机/邮箱，passport 登录态） */
+  accountInfo (): Promise<AccountInfo> {
+    return account.accountInfo(this.http)
+  }
+
+  /** passport 令牌心跳（scene=boot 启动 / polling 周期轮询），续杯防掉线 */
+  beatToken (scene = 'boot'): Promise<void> {
+    return account.beatToken(this.http, scene)
+  }
+
+  /* -- 视频/播放 -------------------------------------------------------------- */
+
+  /** 拉取作品弹幕（startTime/endTime 为毫秒偏移窗口） */
+  danmaku (
+    itemId: string,
+    options?: { groupId?: string; startTime?: number; endTime?: number; duration?: number; token?: string },
+  ): Promise<Danmaku[]> {
+    return watch.danmaku(this.http, itemId, options)
+  }
+
+  /** 上报播放进度（服务端据此续播/记历史） */
+  playProgress (itemId: string, progress: number, duration: number): Promise<void> {
+    return watch.playProgress(this.http, itemId, progress, duration)
+  }
+
+  /** 短剧剧集观看记录 */
+  seriesRecord (seriesId: string, itemId: string, episode: number): Promise<void> {
+    return watch.seriesRecord(this.http, seriesId, itemId, episode)
+  }
+
+  /** 合集观看记录 */
+  mixRecord (mixId: string, itemId: string, episode: number): Promise<void> {
+    return watch.mixRecord(this.http, mixId, itemId, episode)
+  }
+
+  /** 写入观看历史（preItemId 缺省为空表示首次写入） */
+  historyWrite (awemeId: string, options?: { authorId?: string; preItemId?: string }): Promise<void> {
+    return watch.historyWrite(this.http, awemeId, options)
+  }
+
+  /** 批量查作品安全等级 */
+  safetyCheck (itemIds: string[]): Promise<Array<Record<string, unknown>>> {
+    return watch.safetyCheck(this.http, itemIds)
+  }
+
+  /* -- IM 社交关系 ------------------------------------------------------------ */
+
+  /** 气泡详情（附带当前使用标记） */
+  bubbleDetail (bubbleId: string, options?: { needCurrent?: boolean }): Promise<Bubble[]> {
+    return social.bubbleDetail(this.http, bubbleId, options)
+  }
+
+  /** 关注/好友关系列表（count+source 可调，其余固定参数随官方） */
+  spotlight (options?: { count?: number; source?: string }): Promise<RelationPage> {
+    return social.spotlight(this.http, options)
+  }
+
+  /** 关注用户（type=0 关注；响应体为空，只判 HTTP 状态） */
+  followUser (userId: string, secUid: string, options?: { type?: number; tag?: string }): Promise<void> {
+    return social.followUser(this.http, userId, secUid, options)
+  }
+
+  /** 可能认识的人 */
+  familiarList (options?: { count?: number; cursor?: number; recommendType?: number }): Promise<SocialUser[]> {
+    return social.familiarList(this.http, options)
+  }
+
+  /* -- 通知 ------------------------------------------------------------------ */
+
+  /** 通知分组未读数（登录后轮询红点用） */
+  noticeCount (): Promise<NoticeCount[]> {
+    return notify.noticeCount(this.http)
+  }
+
+  /** 通知列表（缺省互动分组 401；markRead=false 拉取但不标记已读） */
+  noticeList (options?: { count?: number; group?: number; maxTime?: number; minTime?: number; markRead?: boolean }): Promise<NoticePage> {
+    return notify.noticeList(this.http, options)
+  }
+
+  /* -- 设置 ------------------------------------------------------------------ */
+
+  /** 桌面消息提醒设置 */
+  desktopSetting (): Promise<DesktopSetting> {
+    return setting.desktopSetting(this.http)
+  }
+
+  /** 账号综合设置（私密等级/青少年模式，raw 透传全量字段） */
+  userSettings (): Promise<UserSettings> {
+    return setting.userSettings(this.http)
+  }
+
+  /** 合规/青少年模式设置 */
+  complianceSetting (): Promise<ComplianceSetting> {
+    return setting.complianceSetting(this.http)
   }
 
   getFriendRequests (options: { status?: FriendRequestStatus } = {}): Promise<FriendRequestInfo[]> {

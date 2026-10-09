@@ -7,7 +7,7 @@ export {
   type Cmd411FrameOptions, type Cmd411SendOptions,
 } from './transport.js'
 export { toInboundMessage, extractAndroidPushes, extractReactions } from './recv.js'
-export { getUserProfiles, profileScene, profileOther, type UserProfile, type ProfileDetail } from './users.js'
+export { userInfo, getUserProfiles, profileScene, profileOther, profileSelf, type UserInfo, type UserProfile, type ProfileDetail } from './users.js'
 export { getVideoUrl, awemeDetail, type AwemeDetail } from './play.js'
 export { decryptCencMp4 } from './cenc.js'
 export { resolveMedia, fileNameOf, isInput, type MediaInput } from './source.js'
@@ -25,6 +25,7 @@ export {
   actionResponse, modifyReaction, markConversationRead, recall,
   listConversations, listCookieThreads, listStrangerThreads, getChatHistory,
   getFriendList, getGroupList, getGroupMembers, getStrangerList,
+  listFriendThreads, listConversationsByCookie, listNativeGroups,
   getGroupJoinRequests, setGroupName, reviewGroupJoinRequest, getFriendRequests, reviewFriendRequest,
   addGroupMembers, removeGroupMembers, leaveGroup, deleteConversation, setConversationSetting, createGroup,
   type InboxContext, type InboxListOptions,
@@ -56,17 +57,30 @@ export * from './types.js'
 export { getEmojiList, type EmojiInfo } from './emoji.js'
 export { verifyShare, type GroupShareInput, type GroupShareResult } from './share.js'
 export {
-  stickerList, stickerCollect, emojiTrending, strategyConfig, SCENES_FAVS,
+  stickerList, stickerCollect, emojiTrending, strategyConfig, privacyImage, SCENES_FAVS,
   type Sticker, type StickerImage, type StickerPage, type StickerCollectResult, type StrategyConfig,
 } from './resource.js'
 export {
   heartbeat, onlineStatus, activeSwitch, readSwitch,
   type OnlineItem, type ReadSwitchItem,
 } from './active.js'
+export { accountInfo, beatToken, type AccountInfo } from './account.js'
 export {
-  followUsers, fanUsers, mutualUsers,
-  type RelationUser, type RelationPage, type RelationOptions, type MutualOptions,
-} from './relation.js'
+  danmaku, playProgress, seriesRecord, mixRecord, historyWrite, safetyCheck,
+  type Danmaku,
+} from './watch.js'
+export {
+  bubbleDetail, spotlight, followUser, familiarList,
+  type Bubble, type SocialUser, type RelationPage,
+} from './social.js'
+export {
+  noticeCount, noticeList,
+  type Notice, type NoticeCount, type NoticePage,
+} from './notify.js'
+export {
+  desktopSetting, userSettings, complianceSetting,
+  type DesktopSetting, type UserSettings, type ComplianceSetting,
+} from './setting.js'
 export {
   AndroidFrontierWs, buildAndroidFrontierUrl, reconnectDelay, cookieValue,
   ANDROID_APP_KEY, ANDROID_ACCESS_SALT, ANDROID_UA, ANDROID_SDK_VERSION,

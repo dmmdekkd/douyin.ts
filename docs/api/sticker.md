@@ -92,6 +92,23 @@ const cfg = await bot.sticker.strategy()
 // { decisionTrees?, interactiveResourceConfig? }
 ```
 
+## 打码图
+
+`bot.sticker.privacyImage(uri, options?)` — 把图源 uri 渲染成打码图（分享卡片脱敏头像/昵称场景），返回 CDN 直链列表（privacy/batch_build_image）。
+
+```ts
+const urls = await bot.sticker.privacyImage('tos-cn-o-00061/a3bd2fd80ea94219bc83428c5d2a5676')
+// ['https://p26-sign.douyinpic.com/tos-cn-o-00061/...~tplv-x-get:large.image?...', ...]
+```
+
+### 参数
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| uri | string | 图源资源 id（不含域名与后缀） |
+| format | string | 成图模板，缺省 `tplv-x-get:large.image` |
+| tpl | string | CDN 拼链模板，缺省 `%s://%v/%v~%v` |
+
 ## 数据结构
 
 资源列表为分页结构（`list` / `favs` / `gifs` / `trending` 均同形），需要全量时按 `done` + `cursor` 翻页。

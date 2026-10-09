@@ -38,6 +38,15 @@ const session = await login({
 | `assist_mobile_up_sms_verify` | 上行短信：用安全手机发指定短信（`sms_content` → `channel_mobile`），免输入 |
 | `pwd_verify` | 登录密码验证 |
 
+每个可用方式的字段（`VerifyWay`）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| verify_way | `string` | 方式名，即上表取值 |
+| mobile | `string` | 脱敏手机号（短信类方式用于展示） |
+| sms_content | `string` | 上行短信内容 |
+| channel_mobile | `string` | 上行短信接收号码 |
+
 选择免输入的上行短信可避开 `onMfa` 交互：
 
 ```ts

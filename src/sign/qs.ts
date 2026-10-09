@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import { aBogus, aBogusDesktop } from './bogus.js'
 import type { ABogusOpts, Preset } from './bogus.js'
 import { noonTs } from './aid.js'
-import { im, web } from './const.js'
+import { im, web, passport } from './const.js'
 
 export interface SignQsOpts {
   /** 查询参数（不含 sign / qs / msToken / a_bogus） */
@@ -233,8 +233,10 @@ export function desktopUrl (path: string, search: string): string {
   return `${im.origin}${normalized}?${search}`
 }
 
-export interface DesktopQueryOpts {
+export interface PassportQueryOpts {
+  /** 服务端注册的桌面设备 id */
   deviceId: string
+  /** 桌面客户端 iid（未注册为 '0'） */
   installId: string
   accountSdkSourceInfo?: string
   bizTraceId?: string
@@ -243,13 +245,16 @@ export interface DesktopQueryOpts {
   extra?: Record<string, string>
 }
 
-/** 桌面 normal SDK（2.4.12）Passport 基础查询，字段顺序对齐 douyin-im（a_bogus 对顺序敏感） */
-export function desktopBaseQuery (opts: DesktopQueryOpts): Record<string, string> {
+/**
+ * 桌面 normal SDK（2.4.12）Passport 基础查询，字段与顺序对齐官方桌面客户端抓包
+ * （HAR 实证：imdesktop.douyin.com / aid=339757；request_host 走 file:// 本地登录页）
+ */
+export function passportBaseQuery (opts: PassportQueryOpts): Record<string, string> {
   return {
     passport_jssdk_version: '2.4.12',
     passport_jssdk_type: 'normal',
     is_from_ttaccountsdk: '1',
-    aid: im.aid,
+    aid: passport.aid,
     language: 'zh',
     ts: noonTs(),
     ...(opts.next ? { next: opts.next } : {}),
@@ -262,7 +267,8 @@ export function desktopBaseQuery (opts: DesktopQueryOpts): Record<string, string
     p_js_t: 'pro',
     p_zt: '3.3.5',
     p_ver: '1.0.29',
-    request_host: 'file://',
+    // 登录页为 Electron 本地 file:// 渲染，wire 上双重编码（HAR 实证 file%253A%252F%252F）
+    request_host: 'file%3A%2F%2F',
     p_bd: '1.0.1.7',
     biz_trace_id: opts.bizTraceId ?? randomTrace(),
     device_id: opts.deviceId,
