@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.7](https://github.com/dmmdekkd/douyin.ts/compare/v0.6.6...v0.6.7) (2026-10-09)
+
+
+### Features
+
+* 支持任意消息类型的引用回复 ([c6480ed](https://github.com/dmmdekkd/douyin.ts/commit/c6480ed61e1b8c126d48f4c81a4dea6f6c4e1c74))
+
 ## [0.6.6](https://github.com/dmmdekkd/douyin.ts/compare/v0.6.5...v0.6.6) (2026-10-09)
 
 
