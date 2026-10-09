@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.6](https://github.com/dmmdekkd/douyin.ts/compare/v0.6.5...v0.6.6) (2026-10-09)
+
+
+### Features
+
+* 支持持久化设备身份以避免登录二次验证 ([f12d59b](https://github.com/dmmdekkd/douyin.ts/commit/f12d59bb446a035add596edb78c88bfad019b776))
+
 ## [0.6.5](https://github.com/dmmdekkd/douyin.ts/compare/v0.6.4...v0.6.5) (2026-10-09)
 
 
