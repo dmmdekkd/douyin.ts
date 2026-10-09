@@ -43,9 +43,10 @@ export {
 export {
   buildLegacyTextContent, buildCreatorTextContent, buildDesktopTextContent,
   buildImageContent, buildFileContent, buildVideoContent, buildShareContent, buildUserCardContent, buildReplyPayload,
+  buildReference,
   buildCardContent, buildLocationContent, buildGroupCardContent,
   parseBody, normalizeTextMessageContent, normalizeDesktopTextMessageContent,
-  type ReplyMessageOptions, type ReplyPayload, type TextMention,
+  type ReplyMessageOptions, type ReplyPayload, type ReferenceMeta, type TextMention,
 } from './content.js'
 export {
   pickImageUrl, decryptImage, decryptCencSample, sniffImageFormat,

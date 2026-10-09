@@ -151,6 +151,8 @@ export async function sendBody (
   body: MsgBody,
   opts?: SendBodyOptions,
 ): Promise<SendMessageResponse> {
+  // 附加选项统一透传：clientMessageId（幂等去重）与 reference（引用回复，任意消息类型均可引）
+  const extra: SendBodyOptions = { clientMessageId: opts?.clientMessageId, reference: opts?.reference }
   switch (body.type) {
     case 'text': {
       if (body.atAll) {
@@ -161,7 +163,7 @@ export async function sendBody (
           content: buildAtAllTextContent(body.text),
           messageType: 7,
           atAll: true,
-          clientMessageId: opts?.clientMessageId,
+          ...extra,
         })
       }
       const { content, mentions } = textWithAts(body.text, body.ats, address.conversationId)
@@ -170,12 +172,12 @@ export async function sendBody (
         content,
         messageType: 7,
         ...(mentions.length ? { mentionedUsers: [...new Set(mentions.map(m => m.uid))] } : {}),
-        clientMessageId: opts?.clientMessageId,
+        ...extra,
       })
     }
     case 'image': {
       if (isInput(body.image)) throw new Error('图片输入源须先经 bot.msg.send 自动上传（或传预上传资产）')
-      return sendImage(ctx, { ...address, image: body.image, clientMessageId: opts?.clientMessageId })
+      return sendImage(ctx, { ...address, image: body.image, ...extra })
     }
     case 'video': {
       const video = body.video
@@ -192,33 +194,33 @@ export async function sendBody (
             ...(width !== undefined ? { width } : {}),
             ...(height !== undefined ? { height } : {}),
           },
-          clientMessageId: opts?.clientMessageId,
+          ...extra,
         })
       }
-      return sendVideo(ctx, { ...address, video, clientMessageId: opts?.clientMessageId })
+      return sendVideo(ctx, { ...address, video, ...extra })
     }
     case 'file': {
       const file = body.file
       if ('source' in file) throw new Error('文件输入源须先经 bot.msg.send 自动上传（或传预上传资产）')
-      return sendFile(ctx, { ...address, file: 'asset' in file ? file.asset : file, clientMessageId: opts?.clientMessageId })
+      return sendFile(ctx, { ...address, file: 'asset' in file ? file.asset : file, ...extra })
     }
     case 'share':
-      return sendShare(ctx, { ...address, item: body.share, clientMessageId: opts?.clientMessageId })
+      return sendShare(ctx, { ...address, item: body.share, ...extra })
     case 'userCard':
-      return sendUserCard(ctx, { ...address, user: body.user, clientMessageId: opts?.clientMessageId })
+      return sendUserCard(ctx, { ...address, user: body.user, ...extra })
     case 'forward':
-      return sendMergeForward(ctx, { ...address, nodes: body.nodes, selfUid: ctx.userId, clientMessageId: opts?.clientMessageId })
+      return sendMergeForward(ctx, { ...address, nodes: body.nodes, selfUid: ctx.userId, ...extra })
     case 'emoji': {
       // 小表情 id（如 weixiao）按官方形态以键值文本发送（tos-cn 域发 lite_emoji 会被 s:visible 仅自身可见）
       const text = await emojiTextOf(ctx.http, body.emoji)
-      if (text) return send(ctx, { ...address, content: text, messageType: 7, clientMessageId: opts?.clientMessageId })
+      if (text) return send(ctx, { ...address, content: text, messageType: 7, ...extra })
       // 表情消息（lite_emoji / messageType=5，HAR 权威样本：url 为完整 CDN 直链，display_name 为表情名）
       // emoji 传完整 URL 或 im-resource 资源 id（id 经 trending 缓存解析为签名直链）
       return send(ctx, {
         ...address,
         content: buildEmojiContent(await stickerUrlOf(ctx.http, body.emoji), body.text),
         messageType: 5,
-        clientMessageId: opts?.clientMessageId,
+        ...extra,
       })
     }
     case 'card':
@@ -227,14 +229,14 @@ export async function sendBody (
         ...address,
         content: buildCardContent(body.card, body.text ?? body.card.title ?? ''),
         messageType: 110,
-        clientMessageId: opts?.clientMessageId,
+        ...extra,
       })
     case 'location':
       return send(ctx, {
         ...address,
         content: buildLocationContent(body.location),
         messageType: 502,
-        clientMessageId: opts?.clientMessageId,
+        ...extra,
       })
     case 'groupCard':
       // 群聊邀请卡原样回传：from_uid 缺省以发送者身份填充，title/desc 自动构造
@@ -242,7 +244,7 @@ export async function sendBody (
         ...address,
         content: buildGroupCardContent(body.groupCard, ctx.userId),
         messageType: 58,
-        clientMessageId: opts?.clientMessageId,
+        ...extra,
       })
     default:
       ctx.log.warn(`不支持发送的消息类型 ${body.type}，已跳过`)
@@ -306,6 +308,8 @@ export interface SendForwardOptions extends ConversationAddress {
   selfSecUid?: string
   /** 复用原 cmid（同会话幂等去重兜底，编辑不支持）；缺省随机 */
   clientMessageId?: string
+  /** 引用元数据（refMsgInfo）：本条消息为引用回复 */
+  reference?: SendMessageReference
 }
 
 /** 节点文本摘要：文字原样，媒体占位（list_content.text） */
@@ -396,6 +400,8 @@ export interface SendMediaOptions extends ConversationAddress {
   image: ImageAsset
   /** 复用原 cmid（同会话幂等去重兜底，编辑不支持）；缺省随机 */
   clientMessageId?: string
+  /** 引用元数据（refMsgInfo）：本条消息为引用回复 */
+  reference?: SendMessageReference
 }
 
 /** 发送图片（gif → aweType 2703，其余 2702；messageType=27） */
@@ -418,6 +424,8 @@ export interface SendVideoOptions extends ConversationAddress {
   }
   /** 复用原 cmid（同会话幂等去重兜底，编辑不支持）；缺省随机 */
   clientMessageId?: string
+  /** 引用元数据（refMsgInfo）：本条消息为引用回复 */
+  reference?: SendMessageReference
 }
 
 /** 发送视频（messageType=30，content 无 aweType） */
@@ -433,6 +441,8 @@ export interface SendFileOptions extends ConversationAddress {
   file: FileAsset
   /** 复用原 cmid（同会话幂等去重兜底，编辑不支持）；缺省随机 */
   clientMessageId?: string
+  /** 引用元数据（refMsgInfo）：本条消息为引用回复 */
+  reference?: SendMessageReference
 }
 
 /** 发送文件（messageType=6、aweType=15001；9 会被客户端判「请升级最新版」，6 可发出但部分客户端渲染异常） */
@@ -447,6 +457,8 @@ export interface SendShareOptions extends ConversationAddress {
   item: ShareItem
   /** 复用原 cmid（同会话幂等去重兜底，编辑不支持）；缺省随机 */
   clientMessageId?: string
+  /** 引用元数据（refMsgInfo）：本条消息为引用回复 */
+  reference?: SendMessageReference
 }
 
 /** 发送作品分享卡片（messageType=8 / aweType=800） */
@@ -461,6 +473,8 @@ export interface SendUserCardOptions extends ConversationAddress {
   user: UserCard
   /** 复用原 cmid（同会话幂等去重兜底，编辑不支持）；缺省随机 */
   clientMessageId?: string
+  /** 引用元数据（refMsgInfo）：本条消息为引用回复 */
+  reference?: SendMessageReference
 }
 
 /** 发送用户名片卡片（messageType=25 / aweType=0） */

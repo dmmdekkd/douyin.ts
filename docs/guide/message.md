@@ -56,8 +56,9 @@ await bot.msg.send(chatId, { type: 'text', text: 'hi' })
 // 媒体可直接传 URL / 路径 / base64 / 字节，SDK 自动上传
 await bot.msg.send(chatId, { type: 'image', image: 'https://example.com/cat.jpg' })
 
-// 引用回复 / 表情回应 / 撤回 / 已读
+// 引用回复（任意消息类型可引；body 也可为任意消息体，如引用后发图片）/ 表情回应 / 撤回 / 已读
 await bot.msg.reply(chatId, msg, '回复内容')
+await bot.msg.reply(chatId, msg, { type: 'image', image: 'https://example.com/cat.jpg' })
 await bot.msg.react(chatId, msg.serverMessageId!, '[爱心]')
 await bot.msg.recall(chatId, sent.serverMessageId)
 await bot.msg.read(chatId, msg)

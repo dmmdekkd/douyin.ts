@@ -14,6 +14,7 @@ import type {
   ReadEvent,
   RecallItem,
   SendBodyOptions,
+  SendMessageReference,
   StatusEvent,
   VoipCallEvent,
 } from './im/types.js'
@@ -23,7 +24,7 @@ import type { EncryptedVideoUrl, EmojiInfo } from './im/index.js'
 import type { GetPeerRequest, UserMessageQuery } from './im/index.js'
 import type { ConversationSettingInput, CreateGroupOptions } from './im/index.js'
 import type { GroupShareInput } from './im/index.js'
-import { resolveMedia, fileNameOf, probeVideo, extractVideoPoster, isInput } from './im/index.js'
+import { resolveMedia, fileNameOf, probeVideo, extractVideoPoster, isInput, buildReference } from './im/index.js'
 import type { MediaInput } from './im/index.js'
 import { Http } from './http/index.js'
 import { createLog } from './log.js'
@@ -60,6 +61,19 @@ function toAddress (chatId: string): ConversationAddress {
 /** 入站消息附 chatId 与发送者昵称，发消息直接回传 */
 export type BotMessage = InboundMessage & { chatId: string; senderNickname?: string }
 
+/** 由收到的消息提取引用元数据：任意消息类型均可被引用，类型原样透传 */
+function referenceOf (msg: BotMessage): SendMessageReference {
+  return buildReference({
+    referencedMessageId: msg.serverMessageId ?? '',
+    referencedMessageType: msg.messageType,
+    referencedUid: msg.senderUid,
+    referencedSecUid: msg.senderSecUid,
+    nickname: msg.senderNickname,
+    referencedText: msg.text,
+    rootMessageId: msg.reference?.rootMessageId,
+  })
+}
+
 /** 可进昵称缓存的条目（好友/陌生人/群成员/申请列表的公共形状） */
 type NickEntry = { uid: string; nickname?: string; alias?: string }
 
@@ -84,9 +98,14 @@ export type BotEvent = keyof BotEventMap
 class Msg {
   constructor (private readonly bot: Bot) {}
 
-  /** 统一发送：type 判别一条消息；媒体输入源自动上传，收侧消息对象可直接回传 */
-  async send (chatId: string, body: MsgBody, opts?: SendBodyOptions): Promise<ReturnType<Im['sendBody']>> {
-    return this.bot.im().sendBody(toAddress(chatId), await this.prepare(body), opts)
+  /** 统一发送：type 判别一条消息；媒体输入源自动上传，收侧消息对象可直接回传。
+   *  opts.reply 传收到的消息对象即为引用回复（任意消息类型均可被引用）。 */
+  async send (chatId: string, body: MsgBody, opts?: SendBodyOptions & { reply?: BotMessage }): Promise<ReturnType<Im['sendBody']>> {
+    const reference = opts?.reply ? referenceOf(opts.reply) : opts?.reference
+    return this.bot.im().sendBody(toAddress(chatId), await this.prepare(body), {
+      ...(opts?.clientMessageId ? { clientMessageId: opts.clientMessageId } : {}),
+      ...(reference ? { reference } : {}),
+    })
   }
 
   /** 编辑已发送消息——不支持：HTTP 复用原 cmid 会被服务端幂等去重（返回原消息 id，内容不更新），
@@ -155,20 +174,24 @@ class Msg {
     return this.bot.im().callVoice(toAddress(chatId), calleeUid)
   }
 
-  /** 引用回复：消息对象来自 bot.on('message')，自动提取引用元数据；opts 可带 @所有人/@提及（与发送文本同形态） */
-  reply (chatId: string, msg: BotMessage, text: string, opts?: Pick<ReplyOptions, 'atAll' | 'ats'>): ReturnType<Im['reply']> {
-    const options: ReplyOptions = {
-      ...toAddress(chatId),
-      text,
-      referencedMessageId: msg.serverMessageId ?? '',
-      referencedMessageType: msg.messageType,
-      referencedUid: msg.senderUid,
-      referencedSecUid: msg.senderSecUid,
-      referencedText: msg.text,
-      rootMessageId: msg.reference?.rootMessageId,
-      ...opts,
-    }
-    return this.bot.im().reply(options)
+  /** 引用回复：msg 为被引用消息（任意消息类型均可引），body 可为文本或任意消息体（如引用后发图片）。
+   *  文本为空时不发送（防空消息）；opts 仅文本正文时生效，可带 @所有人/@提及。 */
+  async reply (
+    chatId: string,
+    msg: BotMessage,
+    body: string | MsgBody,
+    opts?: Pick<ReplyOptions, 'atAll' | 'ats'>,
+  ): ReturnType<Im['sendBody']> {
+    const content: MsgBody = typeof body === 'string'
+      ? {
+          type: 'text',
+          text: body,
+          ...(opts?.atAll ? { atAll: true } : {}),
+          ...(opts?.ats?.length ? { ats: opts.ats } : {}),
+        }
+      : body
+    if (content.type === 'text' && !content.text.trim()) throw new Error('引用回复正文不能为空')
+    return await this.send(chatId, content, { reply: msg })
   }
 
   recall (chatId: string, serverMessageId: string): ReturnType<Im['recall']> {

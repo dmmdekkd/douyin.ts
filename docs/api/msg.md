@@ -34,6 +34,8 @@ await bot.msg.send(chatId, { type: 'image', image: 'https://example.com/cat.jpg'
 | 参数 | 类型 | 说明 |
 |------|------|------|
 | clientMessageId | string | 客户端消息 id；同会话重复使用被服务端幂等去重 |
+| reply | `BotMessage` | 引用回复：传被引用消息对象（任意消息类型均可引） |
+| reference | `SendMessageReference` | 引用元数据（refMsgInfo）；一般用 `reply` 即可 |
 
 ::: warning 文件消息兼容性
 文件消息的消息类型字段官方未公开，部分客户端版本接收端可能渲染异常（如无法预览）；文本 / 图片 / 视频不受影响。
@@ -53,26 +55,35 @@ bot.on('message', async msg => {
 
 ## 引用回复
 
-`bot.msg.reply(chatId, msg, text)` — 引用回复。消息对象直接来自 `bot.on('message')`，引用元数据自动提取。
+`bot.msg.reply(chatId, msg, body)` — 引用回复。`msg` 为被引用消息（**任意消息类型均可引用**，引用元数据自动提取）；`body` 可为文本，也可为任意消息体（如引用后发图片）。
 
 ```ts
+// 文本回复
 await bot.msg.reply(chatId, msg, '回复内容')
+
+// 引用后发图片（body 为任意消息体，不限于文本）
+await bot.msg.reply(chatId, msg, { type: 'image', image: 'https://example.com/cat.jpg' })
 
 // 引用 + @所有人（需群主/管理员权限）
 await bot.msg.reply(chatId, msg, '记得填表', { atAll: true })
 
 // 引用 + @提及
 await bot.msg.reply(chatId, msg, '看这条', { ats: [{ uid: 'uid', nickname: '昵称' }] })
+
+// 等价写法：send 第三参带 reply
+await bot.msg.send(chatId, { type: 'image', image: imgAsset }, { reply: msg })
 ```
+
+文本正文为空时直接抛错，不发出空消息。
 
 ### 参数
 
 | 参数 | 类型 | 可能的值 | 说明 |
 |------|------|----------|------|
 | chatId | string | - | 会话标识 |
-| msg | object | - | 收到的消息对象，取引用元数据 |
-| text | string | - | 回复文本 |
-| opts | object | - | 可选；`{ atAll?, ats? }`，与发送文本 `@所有人` / `@提及` 同形态 |
+| msg | object | - | 被引用消息，任意消息类型均可引用 |
+| body | string \| object | - | 文本，或任意消息体（同 [发送消息](#发送消息) 的 body） |
+| opts | object | - | 可选；`{ atAll?, ats? }`，仅文本正文时生效 |
 
 ## 合并转发
 

@@ -11,8 +11,8 @@ export interface TextMention {
   length: number
 }
 
-export interface ReplyMessageOptions {
-  text: string
+/** 引用元数据：从被引用消息提取，任意消息类型均可引用，refmsg_type 原样透传 */
+export interface ReferenceMeta {
   referencedMessageId: string
   referencedMessageType: number
   referencedUid: string
@@ -21,6 +21,10 @@ export interface ReplyMessageOptions {
   referencedText?: string
   rootMessageId?: string
   rootMessageConvIndex?: string
+}
+
+export interface ReplyMessageOptions extends ReferenceMeta {
+  text: string
 }
 
 export interface ReplyPayload {
@@ -288,25 +292,30 @@ export function buildGroupCardContent (card: GroupCard, senderUid: string): stri
   })
 }
 
-export function buildReplyPayload (options: ReplyMessageOptions): ReplyPayload {
-  const hint = JSON.stringify({
-    refmsg_type: options.referencedMessageType,
-    content: options.referencedText ?? '',
-    refmsg_uid: options.referencedUid,
-    refmsg_sec_uid: options.referencedSecUid ?? '',
-    nickname: options.nickname ?? '',
-    refmsg_content: '',
-    version: 0,
-    itemId: '',
-    scene_type: 0,
-  })
+/** 构造引用元数据（refMsgInfo）：任意消息类型均可引用，hint 承载被引用消息类型与摘要 */
+export function buildReference (meta: ReferenceMeta): SendMessageReference {
   const reference: SendMessageReference = {
-    referencedMessageId: options.referencedMessageId,
-    hint,
+    referencedMessageId: meta.referencedMessageId,
+    hint: JSON.stringify({
+      refmsg_type: meta.referencedMessageType,
+      content: meta.referencedText ?? '',
+      refmsg_uid: meta.referencedUid,
+      refmsg_sec_uid: meta.referencedSecUid ?? '',
+      nickname: meta.nickname ?? '',
+      refmsg_content: '',
+      version: 0,
+      itemId: '',
+      scene_type: 0,
+    }),
   }
-  if (options.rootMessageId) reference.rootMessageId = options.rootMessageId
-  if (options.rootMessageConvIndex) reference.rootMessageConvIndex = options.rootMessageConvIndex
-  return { content: buildDesktopTextContent(options.text), reference }
+  if (meta.rootMessageId) reference.rootMessageId = meta.rootMessageId
+  if (meta.rootMessageConvIndex) reference.rootMessageConvIndex = meta.rootMessageConvIndex
+  return reference
+}
+
+export function buildReplyPayload (options: ReplyMessageOptions): ReplyPayload {
+  const { text, ...meta } = options
+  return { content: buildDesktopTextContent(text), reference: buildReference(meta) }
 }
 
 /* ---------------------------------------------------------------------------

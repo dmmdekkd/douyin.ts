@@ -222,7 +222,7 @@ log.info(`bot 已启动 uid=${bot.id}，Ctrl+C 退出`)
 // 冒烟：拉好友/群列表验证 HTTP 通道
 const [frds, grps] = [await bot.frd.list(), await bot.grp.list()]
 log.info(`好友 ${frds.length} 个，群 ${grps.length} 个`)
-log.info('命令: ping /echo x /at /atall /img /video /videop /vurl /vdl /file /emoji /reply /replyall /replyat /react /recall /edit /forward /read /share [itemId] /user /checkin /locate /typing on|off /call /thread /page /follows [n] /fans [n] /mutual [n]')
+log.info('命令: ping /echo x /at /atall /img /video /videop /vurl /vdl /file /emoji /reply /replyall /replyat /replyimg /replyfile /replyvideo /react /recall /edit /forward /read /share [itemId] /user /checkin /locate /typing on|off /call /thread /page /follows [n] /fans [n] /mutual [n]')
 
 const friend = frds[0]
 if (friend) log.info(`示例 chatId: ${friend.chatId}`)
@@ -344,6 +344,15 @@ async function cmd (msg: BotMessage): Promise<void> {
     // 引用 + @提及：reply 第四参 ats（@当前发送者），正文是否带文字都行
     const tail = text.slice(8).trim() || ''
     await bot.msg.reply(msg.chatId, msg, tail, { ats: [{ uid: msg.senderUid }] })
+  } else if (text === '/replyimg') {
+    // 引用 + 图片：验证引用回复正文不限类型（被引用消息任意类型，本条发图片）
+    await bot.msg.reply(msg.chatId, msg, { type: 'image', image: 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=douyin.ts' })
+  } else if (text === '/replyfile') {
+    // 引用 + 文件：正文为文件体，验证引用与类型无关
+    await bot.msg.reply(msg.chatId, msg, { type: 'file', file: { source: Buffer.from('引用回复文件测试'), name: 'reply.txt' } })
+  } else if (text === '/replyvideo') {
+    // 引用 + 视频：正文为视频体（不带封面，SDK 自动抽帧并探测尺寸）
+    await bot.msg.reply(msg.chatId, msg, { type: 'video', video: { source: 'https://www.w3schools.com/html/mov_bbb.mp4' } })
   } else if (text === '/react') {
     await bot.msg.react(msg.chatId, msg.serverMessageId!, '[爱心]')
   } else if (text === '/recall') {

@@ -143,6 +143,8 @@ export interface SendMessageItem {
 /** sendBody 附加选项 */
 export interface SendBodyOptions {
   clientMessageId?: string
+  /** 引用元数据（refMsgInfo）；提供时本条消息为引用回复，与消息类型无关 */
+  reference?: SendMessageReference
 }
 
 /** 消息表情回应（cmd=705 set_property，key=se:<emoji>） */
