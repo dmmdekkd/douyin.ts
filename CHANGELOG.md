@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.5](https://github.com/dmmdekkd/douyin.ts/compare/v0.6.4...v0.6.5) (2026-10-09)
+
+
+### Features
+
+* 新增社交、播放、通知、设置模块及相关接口 ([d1179e2](https://github.com/dmmdekkd/douyin.ts/commit/d1179e23dea82d2fb06d0ae999fa7dc86bda13cf))
+
 ## [0.6.4](https://github.com/dmmdekkd/douyin.ts/compare/v0.6.3...v0.6.4) (2026-10-08)
 
 
