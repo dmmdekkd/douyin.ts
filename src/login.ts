@@ -6,6 +6,7 @@ import { im, passport } from './sign/const.js'
 import { Http, verifyDecision } from './http/index.js'
 import { form, type MfaRes } from './lite.js'
 import { createDevice } from './device.js'
+import type { Device } from './device.js'
 import { createLog, type Log } from './log.js'
 import { self } from './user.js'
 import { parseDecision, stringifyFields, verify } from './verify.js'
@@ -118,6 +119,11 @@ export interface LoginOpts {
    */
   onVerifyWays?: (ways: VerifyWay[]) => string | undefined | Promise<string | undefined>
   userAgent?: string
+  /**
+   * 已持久化的设备身份；注入后跳过注册（沿用同一设备登录，避免每次登录触发 MFA）。
+   * 省略时注册新设备并通过 `session.device` 返回。
+   */
+  device?: Device
   log?: Log
 }
 
@@ -126,18 +132,22 @@ export interface Session {
   userId: string
   cookie: string
   userData?: QrUserData
+  /** 本次登录使用的设备身份;落盘后可在下次 login / new Bot 注入复用 */
+  device?: Device
 }
 
 /** 扫码登录全流程;调用链形态对齐 douyin-im beginLogin 桌面流程 */
 export async function login (opts: LoginOpts = {}): Promise<Session> {
   const http = new Http({ userAgent: opts.userAgent ?? passport.ua, log: opts.log })
-  // 服务端签发的设备身份是登录不触发短信二次验证的根因
-  http.setDevice(await createDevice(opts.log))
+  // 服务端签发的设备身份是登录不触发短信二次验证的根因;注入已持久化身份即跳过注册
+  const device = opts.device ?? await createDevice(opts.log)
+  http.setDevice(device)
   await warm(http).catch(() => undefined)
 
   const qr = await getQr(http)
   await opts.onQr?.({ url: qr.indexUrl ?? qr.token, base64: qr.base64 })
   const session = await poll(http, qr.token, opts)
+  session.device = device
 
   // passport 的 screen_name 是"用户xxx"默认昵称、avatar_url 是 mosaic 占位,用真实资料覆盖(失败不阻断)
   await self(http)

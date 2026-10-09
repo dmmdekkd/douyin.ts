@@ -65,6 +65,7 @@ const session = await login({
   userId: string,   // 数字 uid
   cookie: string,   // 登录 Cookie，new Bot 用
   userData?: { user_id_str, screen_name, avatar_url, mobile, ... }
+  device?: { deviceId, installId, guid }   // 本次登录使用的设备身份
 }
 ```
 
@@ -72,3 +73,15 @@ const session = await login({
 
 - **已存 session**：`new Bot(JSON.parse(fs.readFileSync('session.json')))`，免扫码。
 - **浏览器 Cookie**：`new Bot({ cookie: '粘贴的 Cookie' })`，`userId` 省略时 `start()` 自动获取。
+
+`login()` 与 `Bot` 都支持注入设备身份：把 `session.device` 落盘，下次 `login({ device })` / `new Bot({ cookie, device })` 传入即可复用同一设备，避免每次登录/启动重新注册触发二次验证。
+
+```ts
+import fs from 'node:fs'
+import { login } from 'douyin.ts'
+
+const file = 'device.json'
+const device = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : undefined
+const session = await login({ onQr: qr => console.log(qr.url), device })
+if (session.device) fs.writeFileSync(file, JSON.stringify(session.device))
+```

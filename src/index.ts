@@ -5,6 +5,7 @@ export type {
 export { login } from './login.js'
 export { decryptCencMp4 } from './im/index.js'
 export { createLog } from './log.js'
+export type { Device } from './device.js'
 export type { LoginOpts, Session, MfaInfo, QrStatus, VerifyWay } from './login.js'
 export type { Log } from './log.js'
 export type {

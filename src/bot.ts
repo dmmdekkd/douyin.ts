@@ -29,6 +29,7 @@ import { Http } from './http/index.js'
 import { createLog } from './log.js'
 import type { Log } from './log.js'
 import { createDevice } from './device.js'
+import type { Device } from './device.js'
 import { self } from './user.js'
 import type { SelfInfo } from './user.js'
 import type { FriendRequestStatus } from './im/index.js'
@@ -602,6 +603,11 @@ export interface BotOpts {
   timeout?: number
   /** true 时自发消息也作为 message 事件下发（默认过滤） */
   selfMessage?: boolean
+  /**
+   * 已持久化的设备身份（device_register 签发）；注入后跳过注册，避免每次启动重新注册。
+   * 从上次 `bot.device` / `login()` 返回的 session.device 落盘复用即可。
+   */
+  device?: Device
   log?: Log
 }
 
@@ -654,6 +660,16 @@ export class Bot {
     return this.userId
   }
 
+  /**
+   * 当前设备身份（start 后可用）；持久化后可在下次构造时用 `opts.device` 注入，
+   * 避免每次启动重新注册（注册失败会回退随机 GUID 哈希，身份不稳定易触发 MFA）。
+   */
+  get device (): Device | undefined {
+    const http = this.httpInstance
+    if (!http || !http.hasDevice()) return undefined
+    return { deviceId: http.deviceId, installId: http.installId, guid: http.guid }
+  }
+
   on<T extends BotEvent> (event: T, fn: (...args: BotEventMap[T]) => void): void {
     const im = this.imInstance
     if (im) {
@@ -686,7 +702,9 @@ export class Bot {
       userId = info.uid
       if (info.nickname) this.setNick(userId, info.nickname)
     }
-    if (!http.hasDevice()) {
+    if (this.opts.device) {
+      http.setDevice(this.opts.device)
+    } else if (!http.hasDevice()) {
       http.setDevice(await createDevice(this.log))
     }
     const im = new Im({ http, userId, cookies: this.opts.cookie, deviceId: http.deviceId, selfMessage: this.opts.selfMessage, log: this.log })
