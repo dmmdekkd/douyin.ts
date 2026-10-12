@@ -4,6 +4,7 @@
 
 完整文档：<https://dmmdekkd.github.io/douyin.ts/>
 
+参考![douyin-im](https://github.com/zhinjs/douyin-im)
 支持：扫码登录（含短信/密码/滑块等二次验证）、收消息（WS 推送）、发消息（HTTP 通道）、富媒体上传、好友/群管理、会话状态与群事件。
 
 ## 安装
